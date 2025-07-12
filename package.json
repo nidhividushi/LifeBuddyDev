@@ -17,7 +17,7 @@
     "dev:mobile:android": "cd mobile && pnpm run dev:android",
     "build": "pnpm run build:backend && pnpm run build:mobile",
     "build:backend": "cd backend && pnpm run build",
-    "build:mobile": "cd mobile && pnpm run build:android",
+    "build:mobile": "cd mobile && pnpm run build:ios",
     "build:mobile:ios": "cd mobile && pnpm run build:ios",
     "test": "pnpm run test:backend && pnpm run test:mobile",
     "test:backend": "cd backend && pnpm test",
@@ -48,7 +48,10 @@
     "build:web": "cd web && npm run build",
     "preview:web": "cd web && npm run preview",
     "doctor:mobile": "cd mobile && pnpm run doctor",
-    "info:mobile": "cd mobile && pnpm run info"
+    "info:mobile": "cd mobile && pnpm run info",
+    "lockfile:check": "pnpm -r exec -- pnpm install --frozen-lockfile",
+    "lockfile:update": "pnpm -r exec -- pnpm install",
+    "lockfile:fix": "pnpm lockfile:update && pnpm lockfile:check"
   },
   "keywords": [
     "ai",
@@ -64,9 +67,9 @@
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "prettier": "^3.1.1",
     "husky": "^8.0.3",
-    "lint-staged": "^15.2.0"
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.1"
   },
   "husky": {
     "hooks": {
@@ -93,5 +96,8 @@
   "bugs": {
     "url": "https://github.com/your-username/lifebuddy-app/issues"
   },
-  "homepage": "https://github.com/your-username/lifebuddy-app#readme"
-} 
+  "homepage": "https://github.com/your-username/lifebuddy-app#readme",
+  "dependencies": {
+    "date-fns": "2.29.3"
+  }
+}

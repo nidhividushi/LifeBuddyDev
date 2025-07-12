@@ -12,11 +12,13 @@
 # • iOS Simulator (Xcode) - Optional, see below
 #
 # Package Manager: pnpm (consistent across all services)
-# Usage: ./start [--ios] [--dev|--prod] [--no-simulator]
+# Usage: ./start [--ios] [--dev|--prod] [--no-simulator] [--minimal]
 #   --ios          Launch iOS simulator after Metro starts
 #   --dev          Development mode (default) - launches simulator
 #   --prod         Production mode - no simulator
 #   --no-simulator Skip simulator launch even in dev mode
+#   --minimal      Start only essential services (backend + web)
+#   --cleanup      Clean up system resources and exit
 # Stop:  Ctrl+C
 # ========================================
 
@@ -34,6 +36,55 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Logging functions (define early to avoid "command not found" errors)
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[$(date +'%H:%M:%S')] WARNING:${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[$(date +'%H:%M:%S')] ERROR:${NC} $1"
+}
+
+info() {
+    echo -e "${BLUE}[$(date +'%H:%M:%S')] INFO:${NC} $1"
+}
+
+success() {
+    echo -e "${GREEN}[$(date +'%H:%M:%S')] SUCCESS:${NC} $1"
+}
+
+# Clean up system resources (define early for --cleanup option)
+cleanup_resources() {
+    log "Cleaning up system resources..."
+    
+    # Clear pnpm cache if it's too large
+    local cache_size=$(du -sh ~/.pnpm-store 2>/dev/null | cut -f1 | sed 's/[^0-9]//g')
+    if [ ! -z "$cache_size" ] && [ $cache_size -gt 1000 ]; then
+        info "Clearing large pnpm cache (${cache_size}MB)..."
+        pnpm store prune
+    fi
+    
+    # Clear npm cache if it's too large
+    local npm_cache_size=$(du -sh ~/.npm 2>/dev/null | cut -f1 | sed 's/[^0-9]//g')
+    if [ ! -z "$npm_cache_size" ] && [ $npm_cache_size -gt 500 ]; then
+        info "Clearing large npm cache (${npm_cache_size}MB)..."
+        npm cache clean --force
+    fi
+    
+    # Kill any hanging node processes (optional)
+    local hanging_nodes=$(pgrep -f "node.*start" | wc -l)
+    if [ $hanging_nodes -gt 5 ]; then
+        warn "Found $hanging_nodes hanging node processes. Cleaning up..."
+        pkill -f "node.*start" 2>/dev/null || true
+    fi
+    
+    success "Resource cleanup completed"
+}
+
 # Configuration
 BACKEND_PORT=3001
 WEB_PORT=5174
@@ -45,6 +96,7 @@ REDIS_PORT=6379
 ENVIRONMENT="dev"
 LAUNCH_IOS=false
 SKIP_SIMULATOR=false
+MINIMAL_MODE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -66,14 +118,25 @@ while [[ $# -gt 0 ]]; do
             SKIP_SIMULATOR=true
             shift
             ;;
+        --minimal)
+            MINIMAL_MODE=true
+            SKIP_SIMULATOR=true
+            shift
+            ;;
+        --cleanup)
+            cleanup_resources
+            exit 0
+            ;;
         --help|-h)
-            echo "Usage: $0 [--ios] [--dev|--prod] [--no-simulator]"
+            echo "Usage: $0 [--ios] [--dev|--prod] [--no-simulator] [--minimal] [--cleanup]"
             echo ""
             echo "Options:"
             echo "  --ios          Launch iOS simulator after Metro starts"
             echo "  --dev          Development mode (default) - launches simulator"
             echo "  --prod         Production mode - no simulator"
             echo "  --no-simulator Skip simulator launch even in dev mode"
+            echo "  --minimal      Start only essential services (backend + web)"
+            echo "  --cleanup      Clean up system resources and exit"
             echo "  --help, -h     Show this help message"
             exit 0
             ;;
@@ -86,38 +149,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Auto-detect iOS launch in dev mode unless explicitly disabled
-if [[ "$ENVIRONMENT" == "dev" && "$LAUNCH_IOS" == false && "$SKIP_SIMULATOR" == false ]]; then
-    # Check if we're on macOS and have Xcode
-    if [[ "$OSTYPE" == "darwin"* ]] && command -v xcodebuild &> /dev/null; then
+if [[ "$ENVIRONMENT" == "dev" && "$LAUNCH_IOS" == false && "$SKIP_SIMULATOR" == false && "$MINIMAL_MODE" == false ]]; then
+    # Check if we're on macOS and have Xcode - be more conservative
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v xcodebuild &> /dev/null && command -v pod &> /dev/null; then
         LAUNCH_IOS=true
         info "Auto-detected iOS development environment"
+    else
+        info "iOS auto-detection skipped - use --ios to enable manually"
     fi
 fi
 
 # Project root directory
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
-
-# Logging function
-log() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[$(date +'%H:%M:%S')] WARNING:${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[$(date +'%H:%M:%S')] ERROR:${NC} $1"
-}
-
-info() {
-    echo -e "${BLUE}[$(date +'%H:%M:%S')] INFO:${NC} $1"
-}
-
-success() {
-    echo -e "${GREEN}[$(date +'%H:%M:%S')] SUCCESS:${NC} $1"
-}
 
 # Check if ports are available
 check_port() {
@@ -172,6 +216,14 @@ EOF
         else
             sed -i.bak 's/NODE_ENV=.*/NODE_ENV=development/' .env
         fi
+        # Update PORT to 3001 (only if it exists, don't override other settings)
+        if grep -q "^PORT=" .env; then
+            sed -i.bak 's/^PORT=.*/PORT=3001/' .env
+            info "PORT updated to 3001 in .env file"
+        else
+            echo "PORT=3001" >> .env
+            info "PORT=3001 added to .env file"
+        fi
         info ".env file updated for $ENVIRONMENT mode"
     fi
     
@@ -179,9 +231,95 @@ EOF
     if [ ! -f "backend/.env" ]; then
         info "Creating backend .env file..."
         cp .env backend/.env 2>/dev/null || cp env.example backend/.env 2>/dev/null || true
+    else
+        # Update PORT to 3001 in backend .env (only if it exists)
+        if grep -q "^PORT=" backend/.env; then
+            sed -i.bak 's/^PORT=.*/PORT=3001/' backend/.env
+            info "PORT updated to 3001 in backend .env file"
+        else
+            echo "PORT=3001" >> backend/.env
+            info "PORT=3001 added to backend .env file"
+        fi
     fi
     
     success "Environment variables configured for $ENVIRONMENT mode"
+}
+
+# Check system resources with better error handling
+check_system_resources() {
+    log "Checking system resources..."
+    
+    # Check available memory (with error handling)
+    local available_mem=$(vm_stat 2>/dev/null | grep "Pages free:" | awk '{print $3}' | sed 's/\.//' || echo "0")
+    local total_mem=$(vm_stat 2>/dev/null | grep "Pages total:" | awk '{print $3}' | sed 's/\.//' || echo "1")
+    
+    # Ensure we have valid numbers and avoid division by zero
+    if [[ "$total_mem" =~ ^[0-9]+$ ]] && [[ "$available_mem" =~ ^[0-9]+$ ]] && [ $total_mem -gt 0 ]; then
+        local mem_usage=$(( (total_mem - available_mem) * 100 / total_mem ))
+        if [ $mem_usage -gt 85 ]; then
+            warn "High memory usage detected: ${mem_usage}%. Consider closing other applications."
+            if [ $mem_usage -gt 95 ]; then
+                error "Critical memory usage: ${mem_usage}%. System may be unstable."
+                return 1
+            fi
+        else
+            info "Memory usage: ${mem_usage}%"
+        fi
+    else
+        warn "Could not determine memory usage (vm_stat not available or invalid output)"
+    fi
+    
+    # Check available disk space (with error handling)
+    local disk_usage=$(df . 2>/dev/null | tail -1 | awk '{print $5}' | sed 's/%//' || echo "0")
+    if [[ "$disk_usage" =~ ^[0-9]+$ ]]; then
+        if [ $disk_usage -gt 90 ]; then
+            warn "Low disk space: ${disk_usage}% used. Consider cleaning up."
+            if [ $disk_usage -gt 95 ]; then
+                error "Critical disk space: ${disk_usage}% used. System may fail."
+                return 1
+            fi
+        else
+            info "Disk usage: ${disk_usage}%"
+        fi
+    else
+        warn "Could not determine disk usage"
+    fi
+    
+    # Check process count (with error handling)
+    local process_count=$(ps aux 2>/dev/null | wc -l || echo "0")
+    local process_limit=$(ulimit -u 2>/dev/null || echo "1000")
+    
+    if [[ "$process_count" =~ ^[0-9]+$ ]] && [[ "$process_limit" =~ ^[0-9]+$ ]] && [ $process_limit -gt 0 ]; then
+        local process_usage=$(( process_count * 100 / process_limit ))
+        if [ $process_usage -gt 80 ]; then
+            warn "High process count: ${process_count}/${process_limit} (${process_usage}%)"
+            if [ $process_usage -gt 95 ]; then
+                error "Critical process count: ${process_count}/${process_limit} (${process_usage}%)"
+                return 1
+            fi
+        else
+            info "Process usage: ${process_count}/${process_limit} (${process_usage}%)"
+        fi
+    else
+        warn "Could not determine process usage"
+    fi
+    
+    # Check load average (macOS specific)
+    local load_avg=$(uptime 2>/dev/null | awk -F'load averages:' '{print $2}' | awk '{print $1}' | sed 's/,//' || echo "0")
+    if [[ "$load_avg" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+        local load_num=$(echo "$load_avg" | awk '{print int($1)}')
+        if [ $load_num -gt 10 ]; then
+            warn "High system load: $load_avg. System may be slow."
+            if [ $load_num -gt 50 ]; then
+                error "Critical system load: $load_avg. Consider restarting or closing applications."
+                return 1
+            fi
+        else
+            info "System load: $load_avg"
+        fi
+    else
+        warn "Could not determine system load"
+    fi
 }
 
 # Check dependencies
@@ -213,29 +351,29 @@ check_dependencies() {
         exit 1
     fi
     
-    # Check Xcode (for iOS development)
+    # Check Xcode (for iOS development) - make it optional
     if [[ "$LAUNCH_IOS" == true ]]; then
         if ! command -v xcodebuild &> /dev/null; then
-            error "Xcode is not installed. Please install Xcode from the App Store"
-            exit 1
-        fi
-        
-        # Check iOS Simulator
-        if ! xcrun simctl list devices | grep -q "iPhone"; then
-            warn "No iOS simulators found. Please open Xcode and install iOS simulators"
-        fi
-        
-        # Check CocoaPods
-        if ! command -v pod &> /dev/null; then
-            error "CocoaPods is not installed. Please install CocoaPods: sudo gem install cocoapods"
-            exit 1
+            warn "Xcode is not installed - iOS development will be disabled"
+            LAUNCH_IOS=false
+        else
+            # Check iOS Simulator - don't fail if missing
+            if ! xcrun simctl list devices | grep -q "iPhone"; then
+                warn "No iOS simulators found - iOS simulator may not work"
+            fi
+            
+            # Check CocoaPods - don't fail if missing
+            if ! command -v pod &> /dev/null; then
+                warn "CocoaPods is not installed - iOS simulator may not work"
+                warn "To install: sudo gem install cocoapods"
+            fi
         fi
     fi
     
     success "All dependencies are available"
 }
 
-# Install dependencies if needed
+# Install dependencies if needed (optimized for resource constraints)
 install_dependencies() {
     log "Installing dependencies..."
     
@@ -250,25 +388,49 @@ install_dependencies() {
     # Backend dependencies
     if [ ! -d "backend/node_modules" ]; then
         info "Installing backend dependencies..."
-        cd backend && pnpm install && cd ..
+        cd backend && pnpm install --ignore-workspace && cd ..
     else
-        info "Backend dependencies already installed"
+        # Check if lockfile is in sync with package.json
+        info "Checking backend lockfile consistency..."
+        cd backend && pnpm install --frozen-lockfile > /dev/null 2>&1 || {
+            warn "Backend lockfile out of sync. Updating..."
+            pnpm install --ignore-workspace
+        } && cd ..
+        info "Backend dependencies verified"
     fi
     
     # Web dependencies
     if [ ! -d "web/node_modules" ]; then
         info "Installing web dependencies..."
-        cd web && pnpm install && cd ..
+        cd web && pnpm install --ignore-workspace && cd ..
     else
-        info "Web dependencies already installed"
+        # Check if key web dependencies are actually installed
+        info "Checking web dependencies..."
+        if [ ! -f "web/node_modules/.bin/vite" ]; then
+            warn "Vite not found in web. Reinstalling dependencies..."
+            cd web && pnpm install --ignore-workspace && cd ..
+        else
+            info "Web dependencies verified"
+        fi
     fi
     
-    # Mobile dependencies
-    if [ ! -d "mobile/node_modules" ]; then
-        info "Installing mobile dependencies..."
-        cd mobile && pnpm install && cd ..
+    # Mobile dependencies (skip in minimal mode)
+    if [[ "$MINIMAL_MODE" == false ]]; then
+        if [ ! -d "mobile/node_modules" ]; then
+            info "Installing mobile dependencies..."
+            cd mobile && pnpm install --ignore-workspace && cd ..
+        else
+            # Check if key mobile dependencies are actually installed
+            info "Checking mobile dependencies..."
+            if [ ! -f "mobile/node_modules/.bin/react-native" ]; then
+                warn "React Native CLI not found in mobile. Reinstalling dependencies..."
+                cd mobile && pnpm install --ignore-workspace && cd ..
+            else
+                info "Mobile dependencies verified"
+            fi
+        fi
     else
-        info "Mobile dependencies already installed"
+        info "Skipping mobile dependencies in minimal mode"
     fi
     
     success "Dependencies installed"
@@ -276,7 +438,7 @@ install_dependencies() {
 
 # Setup iOS development environment
 setup_ios() {
-    if [[ "$LAUNCH_IOS" != true ]]; then
+    if [[ "$LAUNCH_IOS" != true || "$MINIMAL_MODE" == true ]]; then
         return 0
     fi
     
@@ -284,34 +446,28 @@ setup_ios() {
     
     # Check if iOS project exists
     if [ ! -d "mobile/ios" ]; then
-        error "iOS project not found in mobile/ios"
-        return 1
+        warn "iOS project not found in mobile/ios - skipping iOS setup"
+        LAUNCH_IOS=false
+        return 0
     fi
     
-    # Check if CocoaPods dependencies are installed
+    # Simple CocoaPods check - don't fail if missing
     if [ ! -d "mobile/ios/Pods" ]; then
-        info "Installing CocoaPods dependencies..."
-        cd mobile/ios
-        pod install
-        cd ../..
-        success "CocoaPods dependencies installed"
+        info "CocoaPods dependencies not installed - iOS simulator may not work"
+        warn "To install: cd mobile/ios && pod install"
     else
-        info "CocoaPods dependencies already installed"
+        info "CocoaPods dependencies found"
     fi
     
-    # Check if Xcode workspace exists
+    # Simple Xcode workspace check - don't fail if missing
     if [ ! -f "mobile/ios/LifeBuddyDev.xcworkspace" ]; then
-        error "Xcode workspace not found. Please run 'cd mobile && pnpm run pod-install'"
-        return 1
+        warn "Xcode workspace not found - iOS simulator may not work"
+        warn "To setup: cd mobile && pnpm run pod-install"
+    else
+        info "Xcode workspace found"
     fi
     
-    # Verify iOS scheme exists
-    if ! xcodebuild -list -workspace mobile/ios/LifeBuddyDev.xcworkspace | grep -q "LifeBuddyDev"; then
-        error "LifeBuddyDev scheme not found in Xcode workspace"
-        return 1
-    fi
-    
-    success "iOS development environment ready"
+    success "iOS development environment check completed"
 }
 
 # Start Docker services (MongoDB, Redis, etc.)
@@ -443,6 +599,11 @@ start_web() {
 
 # Start mobile Metro bundler
 start_mobile() {
+    if [[ "$MINIMAL_MODE" == true ]]; then
+        info "Skipping mobile Metro in minimal mode"
+        return 0
+    fi
+    
     log "Starting Mobile Metro bundler on port $MOBILE_PORT..."
     
     kill_port $MOBILE_PORT "Mobile Metro"
@@ -469,9 +630,11 @@ start_mobile() {
 
 # Start iOS simulator (optional)
 start_ios_simulator() {
-    if [[ "$LAUNCH_IOS" != true || "$SKIP_SIMULATOR" == true ]]; then
+    if [[ "$LAUNCH_IOS" != true || "$SKIP_SIMULATOR" == true || "$MINIMAL_MODE" == true ]]; then
         if [[ "$ENVIRONMENT" == "prod" ]]; then
             info "Skipping iOS simulator in production mode"
+        elif [[ "$MINIMAL_MODE" == true ]]; then
+            info "Skipping iOS simulator in minimal mode"
         else
             info "iOS simulator launch disabled"
         fi
@@ -482,26 +645,22 @@ start_ios_simulator() {
     
     # Check if iOS project exists
     if [ ! -d "mobile/ios" ]; then
-        error "iOS project not found. Run 'cd mobile && pnpm run setup:ios' first."
-        return 1
-    fi
-    
-    # Check if CocoaPods dependencies are installed
-    if [ ! -d "mobile/ios/Pods" ]; then
-        warn "CocoaPods dependencies not installed. Installing now..."
-        cd mobile/ios && pod install && cd ../..
+        warn "iOS project not found - skipping iOS simulator"
+        return 0
     fi
     
     # Wait a bit for Metro to be fully ready
-    sleep 5
+    sleep 3
     
+    # Launch iOS simulator in background - don't block if it fails
     cd mobile
     pnpm run dev:ios > ../logs/ios.log 2>&1 &
     IOS_PID=$!
     cd ..
     
-    success "iOS simulator launch initiated (see logs/ios.log for details)"
-    info "iOS simulator may take a moment to start..."
+    success "iOS simulator launch initiated"
+    info "Check logs/ios.log for iOS simulator details"
+    info "If iOS simulator fails, you can still use web and mobile Metro"
 }
 
 # Create logs directory
@@ -517,6 +676,7 @@ show_status() {
     echo -e "${CYAN}        LifeBuddy Status Report${NC}"
     echo -e "${CYAN}========================================${NC}"
     echo -e "${PURPLE}Environment:${NC} $ENVIRONMENT"
+    echo -e "${PURPLE}Mode:${NC} $([ "$MINIMAL_MODE" == true ] && echo "Minimal" || echo "Full")"
     echo -e "${PURPLE}iOS Simulator:${NC} $([ "$LAUNCH_IOS" == true ] && echo "Enabled" || echo "Disabled")"
     echo
     
@@ -536,11 +696,15 @@ show_status() {
         echo -e "${RED}❌ Web App${NC} - Not responding"
     fi
     
-    # Mobile Metro status
-    if lsof -Pi :$MOBILE_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ Mobile Metro${NC} - http://localhost:$MOBILE_PORT"
+    # Mobile Metro status (only in full mode)
+    if [[ "$MINIMAL_MODE" == false ]]; then
+        if lsof -Pi :$MOBILE_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+            echo -e "${GREEN}✅ Mobile Metro${NC} - http://localhost:$MOBILE_PORT"
+        else
+            echo -e "${RED}❌ Mobile Metro${NC} - Not responding"
+        fi
     else
-        echo -e "${RED}❌ Mobile Metro${NC} - Not responding"
+        echo -e "${YELLOW}⚠️  Mobile Metro${NC} - Skipped in minimal mode"
     fi
     
     # Database status
@@ -562,20 +726,24 @@ show_status() {
     
     echo
     echo -e "${CYAN}========================================${NC}"
-    echo -e "${PURPLE}📱 Mobile Development Commands:${NC}"
-    echo -e "   iOS Simulator: cd mobile && pnpm run dev:ios"
-    echo -e "   iOS Device: cd mobile && pnpm run dev:ios:device"
-    echo -e "   Android: cd mobile && pnpm run dev:android"
-    echo -e "   Metro Reset: cd mobile && pnpm run start:metro"
-    echo -e "${PURPLE}🔧 iOS Setup Commands:${NC}"
-    echo -e "   Setup iOS: pnpm run setup:mobile:ios"
-    echo -e "   Reset iOS: pnpm run reset:mobile:ios"
-    echo -e "   Clean iOS: pnpm run clean:mobile:ios"
+    if [[ "$MINIMAL_MODE" == false ]]; then
+        echo -e "${PURPLE}📱 Mobile Development Commands:${NC}"
+        echo -e "   iOS Simulator: cd mobile && pnpm run dev:ios"
+        echo -e "   iOS Device: cd mobile && pnpm run dev:ios:device"
+        echo -e "   Android: cd mobile && pnpm run dev:android"
+        echo -e "   Metro Reset: cd mobile && pnpm run start:metro"
+        echo -e "${PURPLE}🔧 iOS Setup Commands:${NC}"
+        echo -e "   Setup iOS: pnpm run setup:mobile:ios"
+        echo -e "   Reset iOS: pnpm run reset:mobile:ios"
+        echo -e "   Clean iOS: pnpm run clean:mobile:ios"
+    fi
     echo -e "${PURPLE}📊 Logs:${NC}"
     echo -e "   Backend: tail -f logs/backend.log"
     echo -e "   Web: tail -f logs/web.log"
-    echo -e "   Mobile: tail -f logs/mobile.log"
-    echo -e "   iOS: tail -f logs/ios.log"
+    if [[ "$MINIMAL_MODE" == false ]]; then
+        echo -e "   Mobile: tail -f logs/mobile.log"
+        echo -e "   iOS: tail -f logs/ios.log"
+    fi
     echo -e "${CYAN}========================================${NC}"
 }
 
@@ -620,31 +788,411 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     fi
 fi
 
+# Comprehensive dependency verification and repair
+verify_and_repair_dependencies() {
+    log "Verifying all dependencies comprehensively..."
+    
+    # Backend verification - check all critical dev dependencies
+    info "Verifying backend dependencies..."
+    local backend_missing=()
+    
+    # Check TypeScript and build tools
+    if [ ! -f "backend/node_modules/.bin/tsc" ]; then
+        backend_missing+=("typescript")
+    fi
+    if [ ! -f "backend/node_modules/.bin/nodemon" ]; then
+        backend_missing+=("nodemon")
+    fi
+    if [ ! -f "backend/node_modules/.bin/ts-node" ]; then
+        backend_missing+=("ts-node")
+    fi
+    
+    # Check testing tools
+    if [ ! -f "backend/node_modules/.bin/jest" ]; then
+        backend_missing+=("jest")
+    fi
+    
+    # Check linting tools
+    if [ ! -f "backend/node_modules/.bin/eslint" ]; then
+        backend_missing+=("eslint")
+    fi
+    if [ ! -f "backend/node_modules/.bin/prettier" ]; then
+        backend_missing+=("prettier")
+    fi
+    
+    # Check TypeScript config
+    if [ ! -f "backend/tsconfig.json" ]; then
+        warn "TypeScript config missing in backend"
+    fi
+    
+    # Reinstall if any critical dependencies are missing
+    if [ ${#backend_missing[@]} -gt 0 ]; then
+        warn "Missing backend dependencies: ${backend_missing[*]}. Reinstalling..."
+        cd backend && pnpm install --ignore-workspace && cd ..
+    else
+        info "Backend dependencies verified"
+    fi
+    
+    # Web verification - check all critical dev dependencies
+    info "Verifying web dependencies..."
+    local web_missing=()
+    
+    # Check Vite and build tools
+    if [ ! -f "web/node_modules/.bin/vite" ]; then
+        web_missing+=("vite")
+    fi
+    if [ ! -f "web/node_modules/.bin/tsc" ]; then
+        web_missing+=("typescript")
+    fi
+    
+    # Check React development tools
+    if [ ! -d "web/node_modules/@vitejs/plugin-react" ]; then
+        web_missing+=("@vitejs/plugin-react")
+    fi
+    
+    # Check linting tools
+    if [ ! -f "web/node_modules/.bin/eslint" ]; then
+        web_missing+=("eslint")
+    fi
+    
+    # Check TypeScript config
+    if [ ! -f "web/tsconfig.json" ]; then
+        warn "TypeScript config missing in web"
+    fi
+    
+    # Check Vite config
+    if [ ! -f "web/vite.config.ts" ] && [ ! -f "web/vite.config.js" ]; then
+        warn "Vite config missing in web"
+    fi
+    
+    # Reinstall if any critical dependencies are missing
+    if [ ${#web_missing[@]} -gt 0 ]; then
+        warn "Missing web dependencies: ${web_missing[*]}. Reinstalling..."
+        cd web && pnpm install --ignore-workspace && cd ..
+    else
+        info "Web dependencies verified"
+    fi
+    
+    # Mobile verification - check all critical dev dependencies
+    info "Verifying mobile dependencies..."
+    local mobile_missing=()
+    
+    # Check React Native CLI and Metro
+    if [ ! -f "mobile/node_modules/.bin/react-native" ]; then
+        mobile_missing+=("react-native")
+    fi
+    if [ ! -f "mobile/node_modules/.bin/metro" ]; then
+        mobile_missing+=("metro")
+    fi
+    
+    # Check Babel tools
+    if [ ! -d "mobile/node_modules/@babel/core" ]; then
+        mobile_missing+=("@babel/core")
+    fi
+    if [ ! -d "mobile/node_modules/metro-react-native-babel-preset" ]; then
+        mobile_missing+=("metro-react-native-babel-preset")
+    fi
+    
+    # Check testing tools
+    if [ ! -f "mobile/node_modules/.bin/jest" ]; then
+        mobile_missing+=("jest")
+    fi
+    
+    # Check linting tools
+    if [ ! -f "mobile/node_modules/.bin/eslint" ]; then
+        mobile_missing+=("eslint")
+    fi
+    
+    # Check TypeScript
+    if [ ! -f "mobile/node_modules/.bin/tsc" ]; then
+        mobile_missing+=("typescript")
+    fi
+    
+    # Check Metro config
+    if [ ! -f "mobile/metro.config.js" ] && [ ! -f "mobile/metro.config.ts" ]; then
+        warn "Metro config missing in mobile"
+    fi
+    
+    # Check Babel config
+    if [ ! -f "mobile/babel.config.js" ]; then
+        warn "Babel config missing in mobile"
+    fi
+    
+    # Check TypeScript config
+    if [ ! -f "mobile/tsconfig.json" ]; then
+        warn "TypeScript config missing in mobile"
+    fi
+    
+    # Reinstall if any critical dependencies are missing
+    if [ ${#mobile_missing[@]} -gt 0 ]; then
+        warn "Missing mobile dependencies: ${mobile_missing[*]}. Reinstalling..."
+        cd mobile && pnpm install --ignore-workspace && cd ..
+    else
+        info "Mobile dependencies verified"
+    fi
+    
+    # Check lockfile consistency across all projects (optimized for resource usage)
+    info "Checking lockfile consistency..."
+    
+    # Backend lockfile check
+    if [ -f "backend/package.json" ]; then
+        cd backend
+        if ! pnpm install --frozen-lockfile > /dev/null 2>&1; then
+            warn "Backend lockfile out of sync. Updating..."
+            pnpm install --ignore-workspace
+        fi
+        cd ..
+    fi
+    
+    # Web lockfile check
+    if [ -f "web/package.json" ]; then
+        cd web
+        if ! pnpm install --frozen-lockfile > /dev/null 2>&1; then
+            warn "Web lockfile out of sync. Updating..."
+            pnpm install --ignore-workspace
+        fi
+        cd ..
+    fi
+    
+    # Mobile lockfile check
+    if [ -f "mobile/package.json" ]; then
+        cd mobile
+        if ! pnpm install --frozen-lockfile > /dev/null 2>&1; then
+            warn "Mobile lockfile out of sync. Updating..."
+            pnpm install --ignore-workspace
+        fi
+        cd ..
+    fi
+    
+    # Root lockfile check
+    if [ -f "package.json" ]; then
+        if ! pnpm install --frozen-lockfile > /dev/null 2>&1; then
+            warn "Root lockfile out of sync. Updating..."
+            pnpm install
+        fi
+    fi
+    
+    success "All dependencies verified and repaired"
+}
+
+# Check for broken installations and repair them
+check_and_repair_broken_installations() {
+    log "Checking for broken installations..."
+    
+    # Backend broken installation check
+    info "Checking backend for broken installations..."
+    local backend_broken=()
+    
+    # Check if TypeScript binary exists but package is missing
+    if [ -f "backend/node_modules/.bin/tsc" ] && [ ! -d "backend/node_modules/typescript" ]; then
+        backend_broken+=("typescript")
+    fi
+    
+    # Check if nodemon binary exists but package is missing
+    if [ -f "backend/node_modules/.bin/nodemon" ] && [ ! -d "backend/node_modules/nodemon" ]; then
+        backend_broken+=("nodemon")
+    fi
+    
+    # Check if ts-node binary exists but package is missing
+    if [ -f "backend/node_modules/.bin/ts-node" ] && [ ! -d "backend/node_modules/ts-node" ]; then
+        backend_broken+=("ts-node")
+    fi
+    
+    # Check if jest binary exists but package is missing
+    if [ -f "backend/node_modules/.bin/jest" ] && [ ! -d "backend/node_modules/jest" ]; then
+        backend_broken+=("jest")
+    fi
+    
+    # Reinstall if broken installations found
+    if [ ${#backend_broken[@]} -gt 0 ]; then
+        warn "Broken backend installations detected: ${backend_broken[*]}. Reinstalling..."
+        cd backend && rm -rf node_modules && pnpm install --ignore-workspace && cd ..
+    else
+        info "Backend installations verified"
+    fi
+    
+    # Web broken installation check
+    info "Checking web for broken installations..."
+    local web_broken=()
+    
+    # Check if Vite binary exists but package is missing
+    if [ -f "web/node_modules/.bin/vite" ] && [ ! -d "web/node_modules/vite" ]; then
+        web_broken+=("vite")
+    fi
+    
+    # Check if TypeScript binary exists but package is missing
+    if [ -f "web/node_modules/.bin/tsc" ] && [ ! -d "web/node_modules/typescript" ]; then
+        web_broken+=("typescript")
+    fi
+    
+    # Check if @vitejs/plugin-react package is missing
+    if [ ! -d "web/node_modules/@vitejs/plugin-react" ]; then
+        web_broken+=("@vitejs/plugin-react")
+    fi
+    
+    # Check if ESLint binary exists but package is missing
+    if [ -f "web/node_modules/.bin/eslint" ] && [ ! -d "web/node_modules/eslint" ]; then
+        web_broken+=("eslint")
+    fi
+    
+    # Reinstall if broken installations found
+    if [ ${#web_broken[@]} -gt 0 ]; then
+        warn "Broken web installations detected: ${web_broken[*]}. Reinstalling..."
+        cd web && rm -rf node_modules && pnpm install --ignore-workspace && cd ..
+    else
+        info "Web installations verified"
+    fi
+    
+    # Mobile broken installation check
+    info "Checking mobile for broken installations..."
+    local mobile_broken=()
+    
+    # Check if React Native CLI binary exists but package is missing
+    if [ -f "mobile/node_modules/.bin/react-native" ] && [ ! -d "mobile/node_modules/react-native" ]; then
+        mobile_broken+=("react-native")
+    fi
+    
+    # Check if Metro binary exists but package is missing
+    if [ -f "mobile/node_modules/.bin/metro" ] && [ ! -d "mobile/node_modules/metro" ]; then
+        mobile_broken+=("metro")
+    fi
+    
+    # Check if @babel/core package is missing
+    if [ ! -d "mobile/node_modules/@babel/core" ]; then
+        mobile_broken+=("@babel/core")
+    fi
+    
+    # Check if metro-react-native-babel-preset package is missing
+    if [ ! -d "mobile/node_modules/metro-react-native-babel-preset" ]; then
+        mobile_broken+=("metro-react-native-babel-preset")
+    fi
+    
+    # Check if Jest binary exists but package is missing
+    if [ -f "mobile/node_modules/.bin/jest" ] && [ ! -d "mobile/node_modules/jest" ]; then
+        mobile_broken+=("jest")
+    fi
+    
+    # Check if TypeScript binary exists but package is missing
+    if [ -f "mobile/node_modules/.bin/tsc" ] && [ ! -d "mobile/node_modules/typescript" ]; then
+        mobile_broken+=("typescript")
+    fi
+    
+    # Reinstall if broken installations found
+    if [ ${#mobile_broken[@]} -gt 0 ]; then
+        warn "Broken mobile installations detected: ${mobile_broken[*]}. Reinstalling..."
+        cd mobile && rm -rf node_modules && pnpm install --ignore-workspace && cd ..
+    else
+        info "Mobile installations verified"
+    fi
+    
+    success "Broken installations checked and repaired"
+}
+
+# Check for common missing configuration files
+check_missing_configs() {
+    log "Checking for common missing configuration files..."
+    
+    # Backend configs
+    if [ ! -f "backend/.env" ]; then
+        warn "Backend .env file missing - will be created during setup"
+    fi
+    
+    if [ ! -f "backend/tsconfig.json" ]; then
+        warn "Backend TypeScript config missing"
+    fi
+    
+    if [ ! -f "backend/.eslintrc.js" ] && [ ! -f "backend/.eslintrc.json" ]; then
+        warn "Backend ESLint config missing"
+    fi
+    
+    # Web configs
+    if [ ! -f "web/vite.config.ts" ] && [ ! -f "web/vite.config.js" ]; then
+        warn "Web Vite config missing"
+    fi
+    
+    if [ ! -f "web/tsconfig.json" ]; then
+        warn "Web TypeScript config missing"
+    fi
+    
+    if [ ! -f "web/.eslintrc.js" ] && [ ! -f "web/.eslintrc.json" ]; then
+        warn "Web ESLint config missing"
+    fi
+    
+    # Mobile configs
+    if [ ! -f "mobile/metro.config.js" ] && [ ! -f "mobile/metro.config.ts" ]; then
+        warn "Mobile Metro config missing"
+    fi
+    
+    if [ ! -f "mobile/babel.config.js" ]; then
+        warn "Mobile Babel config missing"
+    fi
+    
+    if [ ! -f "mobile/tsconfig.json" ]; then
+        warn "Mobile TypeScript config missing"
+    fi
+    
+    if [ ! -f "mobile/.eslintrc.js" ] && [ ! -f "mobile/.eslintrc.json" ]; then
+        warn "Mobile ESLint config missing"
+    fi
+    
+    # Root configs
+    if [ ! -f ".env" ]; then
+        warn "Root .env file missing - will be created during setup"
+    fi
+    
+    if [ ! -f "docker-compose.yml" ]; then
+        warn "Docker Compose config missing"
+    fi
+    
+    info "Configuration file check completed"
+}
+
 # Main execution
 main() {
     echo -e "${CYAN}========================================${NC}"
     echo -e "${CYAN}    LifeBuddy Development Environment${NC}"
     echo -e "${CYAN}========================================${NC}"
     echo -e "${PURPLE}Environment:${NC} $ENVIRONMENT"
+    echo -e "${PURPLE}Mode:${NC} $([ "$MINIMAL_MODE" == true ] && echo "Minimal" || echo "Full")"
     echo -e "${PURPLE}iOS Simulator:${NC} $([ "$LAUNCH_IOS" == true ] && echo "Enabled" || echo "Disabled")"
     echo
     
     # Setup
     setup_logs
     setup_environment
+    
+    # Check system resources - exit if critical
+    if ! check_system_resources; then
+        error "System resources are critically low. Please close other applications and try again."
+        error "Consider using --minimal mode for essential services only."
+        exit 1
+    fi
+    
     check_dependencies
     install_dependencies
+    verify_and_repair_dependencies
+    check_and_repair_broken_installations
+    check_missing_configs
     setup_ios
     
     # Start services
     start_containers
-    start_docker_services
-    start_backend
+    start_docker_services || warn "Docker services failed, continuing with other services."
+    start_backend || warn "Backend failed to start, but continuing with other services."
     start_web
-    start_mobile
     
-    # Launch iOS simulator if enabled
-    start_ios_simulator
+    # Start mobile services only in full mode
+    if [[ "$MINIMAL_MODE" == false ]]; then
+        start_mobile
+    fi
+    
+    # Launch iOS simulator if enabled (with error handling)
+    if [[ "$LAUNCH_IOS" == true ]]; then
+        start_ios_simulator || {
+            warn "iOS simulator failed to start - continuing with other services"
+            LAUNCH_IOS=false
+        }
+    fi
     
     # Show status
     show_status

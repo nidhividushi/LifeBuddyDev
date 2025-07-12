@@ -1,4 +1,5 @@
 packages:
   - 'backend'
+  - 'web'
   - 'mobile'
   - 'docs' 
