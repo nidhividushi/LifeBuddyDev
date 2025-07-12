@@ -17,7 +17,7 @@
 #   --dev          Development mode (default) - launches simulator
 #   --prod         Production mode - no simulator
 #   --no-simulator Skip simulator launch even in dev mode
-#   --minimal      Start only essential services (backend + web)
+#   --minimal      Start only essential services (backend + web, no LifeBuddy/mobile)
 #   --cleanup      Clean up system resources and exit
 # Stop:  Ctrl+C
 # ========================================
@@ -85,12 +85,41 @@ cleanup_resources() {
     success "Resource cleanup completed"
 }
 
-# Configuration
+# Parse ports from PORTS.md file
+parse_ports_from_docs() {
+    local ports_file="docs/PORTS.md"
+    
+    if [ ! -f "$ports_file" ]; then
+        warn "PORTS.md not found, using default ports"
+        return 1
+    fi
+    
+    # Parse ports from the table in PORTS.md
+    BACKEND_PORT=$(grep -A 10 "Port Assignments" "$ports_file" | grep "Backend API" | awk '{print $3}')
+    WEB_PORT=$(grep -A 10 "Port Assignments" "$ports_file" | grep "Web App" | awk '{print $3}')
+    LIFEBUDDY_PORT=$(grep -A 10 "Port Assignments" "$ports_file" | grep "LifeBuddy App" | awk '{print $3}')
+    MOBILE_PORT=$(grep -A 10 "Port Assignments" "$ports_file" | grep "Mobile Metro" | awk '{print $3}')
+    
+    # Validate parsed ports
+    if [[ -z "$BACKEND_PORT" || -z "$WEB_PORT" || -z "$LIFEBUDDY_PORT" || -z "$MOBILE_PORT" ]]; then
+        warn "Failed to parse some ports from PORTS.md, using defaults"
+        return 1
+    fi
+    
+    info "Ports loaded from PORTS.md: Backend=$BACKEND_PORT, Web=$WEB_PORT, LifeBuddy=$LIFEBUDDY_PORT, Mobile=$MOBILE_PORT"
+    return 0
+}
+
+# Configuration (defaults, will be overridden by PORTS.md if available)
 BACKEND_PORT=3001
 WEB_PORT=5174
+LIFEBUDDY_PORT=3002
 MOBILE_PORT=8083
 DB_PORT=27017
 REDIS_PORT=6379
+
+# Load ports from PORTS.md
+parse_ports_from_docs
 
 # Environment detection
 ENVIRONMENT="dev"
@@ -135,7 +164,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --dev          Development mode (default) - launches simulator"
             echo "  --prod         Production mode - no simulator"
             echo "  --no-simulator Skip simulator launch even in dev mode"
-            echo "  --minimal      Start only essential services (backend + web)"
+            echo "  --minimal      Start core services (backend + web + LifeBuddy app, no mobile)"
             echo "  --cleanup      Clean up system resources and exit"
             echo "  --help, -h     Show this help message"
             exit 0
@@ -597,6 +626,32 @@ start_web() {
     return 1
 }
 
+# Start LifeBuddy app
+start_lifebuddy() {
+    log "Starting LifeBuddy App on port $LIFEBUDDY_PORT..."
+    
+    kill_port $LIFEBUDDY_PORT "LifeBuddy App"
+    
+    cd lifebuddy-app
+    PORT=$LIFEBUDDY_PORT npm run dev > ../logs/lifebuddy.log 2>&1 &
+    LIFEBUDDY_PID=$!
+    cd ..
+    
+    # Wait for LifeBuddy app to start
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        if curl -s http://localhost:$LIFEBUDDY_PORT > /dev/null 2>&1; then
+            success "LifeBuddy App is running on http://localhost:$LIFEBUDDY_PORT"
+            return 0
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+    
+    error "LifeBuddy App failed to start. Check logs/lifebuddy.log for details"
+    return 1
+}
+
 # Start mobile Metro bundler
 start_mobile() {
     if [[ "$MINIMAL_MODE" == true ]]; then
@@ -696,6 +751,13 @@ show_status() {
         echo -e "${RED}❌ Web App${NC} - Not responding"
     fi
     
+    # LifeBuddy app status
+    if curl -s http://localhost:$LIFEBUDDY_PORT > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ LifeBuddy App${NC} - http://localhost:$LIFEBUDDY_PORT"
+    else
+        echo -e "${RED}❌ LifeBuddy App${NC} - Not responding"
+    fi
+    
     # Mobile Metro status (only in full mode)
     if [[ "$MINIMAL_MODE" == false ]]; then
         if lsof -Pi :$MOBILE_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
@@ -740,6 +802,7 @@ show_status() {
     echo -e "${PURPLE}📊 Logs:${NC}"
     echo -e "   Backend: tail -f logs/backend.log"
     echo -e "   Web: tail -f logs/web.log"
+    echo -e "   LifeBuddy: tail -f logs/lifebuddy.log"
     if [[ "$MINIMAL_MODE" == false ]]; then
         echo -e "   Mobile: tail -f logs/mobile.log"
         echo -e "   iOS: tail -f logs/ios.log"
@@ -758,6 +821,10 @@ cleanup() {
     
     if [ ! -z "$WEB_PID" ]; then
         kill $WEB_PID 2>/dev/null || true
+    fi
+    
+    if [ ! -z "$LIFEBUDDY_PID" ]; then
+        kill $LIFEBUDDY_PID 2>/dev/null || true
     fi
     
     if [ ! -z "$MOBILE_PID" ]; then
@@ -1180,6 +1247,9 @@ main() {
     start_docker_services || warn "Docker services failed, continuing with other services."
     start_backend || warn "Backend failed to start, but continuing with other services."
     start_web
+    
+    # Start LifeBuddy app (included in both minimal and full modes)
+    start_lifebuddy
     
     # Start mobile services only in full mode
     if [[ "$MINIMAL_MODE" == false ]]; then

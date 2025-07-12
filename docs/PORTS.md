@@ -8,6 +8,7 @@ This document outlines the port assignments for all LifeBuddy services to preven
 |---------|------|-------------|-----|
 | **Backend API** | 3001 | Express.js API server | http://localhost:3001 |
 | **Web App** | 5174 | Vite dev server | http://localhost:5174 |
+| **LifeBuddy App** | 3002 | Next.js Vercel app | http://localhost:3002 |
 | **Mobile Metro** | 8083 | React Native Metro bundler | http://localhost:8083 |
 
 ## Health Checks
@@ -15,6 +16,7 @@ This document outlines the port assignments for all LifeBuddy services to preven
 - **Backend Health**: http://localhost:3001/health
 - **Backend API Docs**: http://localhost:3001/api
 - **Web App**: http://localhost:5174
+- **LifeBuddy App**: http://localhost:3002
 
 ## Configuration Files Updated
 
@@ -34,6 +36,10 @@ This document outlines the port assignments for all LifeBuddy services to preven
 ### Web App (`web/src/App.tsx`)
 - API base URL: `http://localhost:3001/api` (was 3000)
 
+### LifeBuddy App (`lifebuddy-app/`)
+- Next.js app port: `3002`
+- Vercel deployment ready
+
 ## Development Commands
 
 ```bash
@@ -43,6 +49,7 @@ make setup
 # Start individual services
 cd backend && pnpm run dev    # Backend on port 3001
 cd web && pnpm run dev        # Web on port 5174
+cd lifebuddy-app && npm run dev  # LifeBuddy app on port 3002
 cd mobile && pnpm start       # Mobile Metro on port 8083
 ```
 
@@ -52,17 +59,17 @@ If you encounter port conflicts:
 
 1. **Check running processes**:
    ```bash
-   lsof -i :3001,5174,8083
+   lsof -i :3001,3002,5174,8083
    ```
 
 2. **Kill conflicting processes**:
    ```bash
-   lsof -ti:3001,5174,8083 | xargs kill -9
+   lsof -ti:3001,3002,5174,8083 | xargs kill -9
    ```
 
 3. **Verify ports are free**:
    ```bash
-   netstat -an | grep LISTEN | grep -E "3001|5174|8083"
+   netstat -an | grep LISTEN | grep -E "3001|3002|5174|8083"
    ```
 
 ## Notes
@@ -70,6 +77,7 @@ If you encounter port conflicts:
 - All ports are now fixed and non-overlapping
 - Backend API is accessible at port 3001
 - Web app connects to backend at port 3001
+- LifeBuddy app runs on port 3002 (Vercel deployment)
 - Mobile Metro bundler runs on port 8083
 - No more port conflicts during development 
 
@@ -78,5 +86,6 @@ If you encounter port conflicts:
 
 - Backend API: 3001
 - Web (Vite): 5174
+- LifeBuddy App (Next.js): 3002
 - Mobile Metro Bundler: 8083
 - (Add DB and other service ports as needed) 

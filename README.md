@@ -87,9 +87,9 @@
 
 ### **Prerequisites**
 - Node.js 18+ and pnpm 8+
-- MongoDB 6.0+
-- Redis 7.0+
-- React Native development environment
+- MongoDB 6.0+ (via Docker)
+- Redis 7.0+ (via Docker)
+- Docker Desktop (for database services)
 
 ### **Installation**
 
@@ -107,21 +107,24 @@
 3. **Environment setup**
    ```bash
    # Copy environment files
-   cp backend/.env.example backend/.env
-   cp frontend/.env.example frontend/.env
-   cp mobile/.env.example mobile/.env
+   cp env.example .env
    
    # Edit with your configuration
-   nano backend/.env
+   nano .env
    ```
 
 4. **Start development servers**
    ```bash
-   # Start backend and mobile
-   pnpm run dev
+   # Start all core services (Backend + Web/Vite + Web/Vercel)
+   ./start --minimal
    
-   # Or start mobile app only
-   pnpm run dev:mobile
+   # Start all services including mobile
+   ./start
+   
+   # Start individual services
+   pnpm run dev:backend    # Backend API only
+   pnpm run dev:web        # Web/Vite app only
+   pnpm run dev:lifebuddy  # LifeBuddy app only
    ```
 
 ### **Docker Setup**
@@ -140,21 +143,38 @@ pnpm run docker:down
 
 ```
 LifeBuddy/
-├── 📱 mobile/          # React Native mobile app
-├── 🌐 frontend/        # React.js web app (future)
-├── ⚙️ backend/         # Node.js API server
+├── ⚙️ backend/         # Node.js API server (Port 3001)
+├── 🌐 web/            # React/Vite development app (Port 5174)
+├── 🚀 lifebuddy-app/  # Next.js production app (Port 3002)
+├── 📱 mobile/         # React Native mobile app (Port 8083)
 ├── 📊 docs/           # Documentation
-├── 🐳 docker/         # Docker configuration
+├── 🐳 docker-compose.yml # Database services
 └── 📋 scripts/        # Build and deployment scripts
 ```
 
 ### **Service Architecture**
-- **API Gateway** - Central entry point with authentication
-- **User Service** - Profile and preference management
-- **Goal Service** - Goal tracking and progress
-- **AI Service** - OpenAI integration and chat
-- **Community Service** - Social features and content
-- **Analytics Service** - Insights and reporting
+
+#### **Core Services (Minimal Mode)**
+1. **Backend API** (Port 3001) - Express.js server with MongoDB/Redis
+2. **Web/Vite** (Port 5174) - Local development and testing interface
+3. **Web/Vercel** (Port 3002) - Next.js production app for Vercel deployment
+
+#### **Full Services (Complete Mode)**
+4. **Mobile Metro** (Port 8083) - React Native development server
+
+#### **Database Services (Docker)**
+- **MongoDB** (Port 27017) - Primary database
+- **Redis** (Port 6379) - Caching and sessions
+- **Elasticsearch** (Port 9200) - Search functionality
+- **Kibana** (Port 5601) - Log management
+- **MinIO** (Port 9000) - File storage
+
+### **Service Communication**
+- Backend API serves all frontend applications
+- Web/Vite for local development and testing
+- Web/Vercel for production deployment
+- Mobile app connects to Backend API
+- All services use shared database infrastructure
 
 ---
 
@@ -178,14 +198,48 @@ LifeBuddy/
 
 ---
 
+## 🌐 Service Access & Ports
+
+### **Core Services (Minimal Mode)**
+| Service | Port | URL | Description |
+|---------|------|-----|-------------|
+| **Backend API** | 3001 | http://localhost:3001 | Express.js server with health check |
+| **Web/Vite** | 5174 | http://localhost:5174 | Local development interface |
+| **Web/Vercel** | 3002 | http://localhost:3002 | Next.js production app |
+
+### **Full Services (Complete Mode)**
+| Service | Port | URL | Description |
+|---------|------|-----|-------------|
+| **Mobile Metro** | 8083 | http://localhost:8083 | React Native development server |
+
+### **Database Services (Docker)**
+| Service | Port | URL | Description |
+|---------|------|-----|-------------|
+| **MongoDB** | 27017 | mongodb://localhost:27017 | Primary database |
+| **Redis** | 6379 | redis://localhost:6379 | Caching and sessions |
+| **Elasticsearch** | 9200 | http://localhost:9200 | Search functionality |
+| **Kibana** | 5601 | http://localhost:5601 | Log management UI |
+| **MinIO** | 9000 | http://localhost:9000 | File storage UI |
+
+### **Health Checks**
+- **Backend Health**: http://localhost:3001/health
+- **Backend API Docs**: http://localhost:3001/api
+- **Web/Vite**: http://localhost:5174
+- **Web/Vercel**: http://localhost:3002
+
+---
+
 ## 🔧 Development
 
 ### **Available Scripts**
 ```bash
 # Development
-pnpm run dev              # Start backend + mobile
-pnpm run dev:mobile       # Start mobile app
-pnpm run dev:backend      # Start backend only
+./start --minimal        # Start core services (Backend + Web/Vite + Web/Vercel)
+./start                  # Start all services including mobile
+pnpm run dev:backend     # Start backend only
+pnpm run dev:web         # Start Web/Vite only
+pnpm run dev:lifebuddy   # Start LifeBuddy app only
+pnpm run dev:mobile      # Start mobile only
 
 # Building
 pnpm run build            # Build all applications
@@ -337,6 +391,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **AWS** for cloud infrastructure
 
 ---
+
+## 📚 Documentation
+
+- **[Services Documentation](docs/SERVICES.md)** - Complete service architecture and workflows
+- **[Port Configuration](docs/PORTS.md)** - Detailed port assignments
+- **[API Documentation](docs/api/README.md)** - Backend API reference
+- **[Contributing Guidelines](CONTRIBUTING.md)** - Development guidelines
 
 ## 📞 Support
 
