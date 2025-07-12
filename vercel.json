@@ -1,13 +1,5 @@
 {
-  "buildCommand": "pnpm install && pnpm run build",
-  "installCommand": "npm install -g pnpm@latest && pnpm install",
-  "framework": "nextjs",
-  "functions": {
-    "app/**/*.ts": {
-      "runtime": "nodejs18.x"
-    }
-  },
-  "env": {
-    "NODE_VERSION": "18"
-  }
+  "buildCommand": "cd lifebuddy-app && npm install && npm run build",
+  "outputDirectory": "lifebuddy-app/.next",
+  "framework": "nextjs"
 } 

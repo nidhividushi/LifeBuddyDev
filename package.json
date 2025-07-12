@@ -29,7 +29,12 @@
     "clean:mobile": "cd mobile && pnpm run clean",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:down": "docker-compose down",
+    "dev:lifebuddy": "cd lifebuddy-app && npm run dev",
+    "build:lifebuddy": "cd lifebuddy-app && npm run build",
+    "start:lifebuddy": "cd lifebuddy-app && npm start",
+    "build:web": "cd web && npm run build",
+    "preview:web": "cd web && npm run preview"
   },
   "keywords": [
     "ai",
@@ -65,8 +70,7 @@
     ]
   },
   "engines": {
-    "node": ">=18.0.0",
-    "pnpm": ">=8.0.0"
+    "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
