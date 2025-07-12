@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Conventional commit regex pattern
+commit_regex='^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?: .{1,50}$'
+
+# Check if commit message matches pattern
+if ! grep -qE "$commit_regex" "$1"; then
+    echo "❌ Invalid commit message format!"
+    echo ""
+    echo "Commit message must follow the pattern:"
+    echo "  <type>(<scope>): <subject>"
+    echo ""
+    echo "Types: feat, fix, docs, style, refactor, test, chore"
+    echo "Scopes: mobile, backend, ui, auth, goals, chat, db, api, config"
+    echo ""
+    echo "Examples:"
+    echo "  feat(goals): add goal template system"
+    echo "  fix(auth): resolve token refresh issue"
+    echo "  docs(api): update authentication endpoints"
+    echo ""
+    echo "Current message:"
+    echo "  $(cat "$1")"
+    echo ""
+    exit 1
+fi
+
+echo "✅ Commit message format is valid!" 

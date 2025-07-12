@@ -1,0 +1,63 @@
+# <type>(<scope>): <subject>
+#
+# <body>
+#
+# <footer>
+
+# Types:
+#   feat     (new feature for the user, not a new feature for build script)
+#   fix      (bug fix for the user, not a fix to a build script)
+#   docs     (changes to the documentation)
+#   style    (formatting, missing semi colons, etc; no production code change)
+#   refactor (refactoring production code, eg. renaming a variable)
+#   test     (adding missing tests, refactoring tests; no production code change)
+#   chore    (updating grunt tasks etc; no production code change)
+
+# Scopes:
+#   mobile   (mobile app changes)
+#   backend  (backend API changes)
+#   ui       (UI/UX changes)
+#   auth     (authentication related)
+#   goals    (goal management features)
+#   chat     (conversation/AI features)
+#   db       (database changes)
+#   api      (API changes)
+#   config   (configuration changes)
+
+# Examples:
+#   feat(goals): add goal template system
+#   fix(auth): resolve token refresh issue
+#   docs(api): update authentication endpoints
+#   style(mobile): fix linting issues
+#   refactor(backend): improve error handling
+#   test(mobile): add unit tests for GoalCard component
+#   chore(config): update dependencies
+
+# Rules:
+#   - Use imperative mood ("add" not "added" or "adds")
+#   - Don't capitalize first letter
+#   - No dot (.) at the end
+#   - Limit subject line to 50 characters
+#   - Wrap body at 72 characters
+#   - Use footer to reference issues
+
+# LifeBuddy Commit Message Template
+# =================================
+
+# Type of change (feat, fix, docs, style, refactor, test, chore):
+# 
+
+# Scope of change (mobile, backend, ui, auth, goals, chat, db, api, config):
+# 
+
+# Short description (max 50 chars):
+# 
+
+# Detailed description (optional, wrap at 72 chars):
+# 
+
+# Breaking changes (optional):
+# 
+
+# Related issues (optional):
+# Closes #123, Fixes #456 

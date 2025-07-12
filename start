@@ -1,0 +1,424 @@
+#!/bin/bash
+
+# ========================================
+# LifeBuddy - Complete Development Environment
+# ========================================
+# 
+# This script starts all LifeBuddy services:
+# • Backend API (Express.js) - Port 3001
+# • Web App (React + Vite) - Port 5174
+# • Mobile Metro (React Native) - Port 8083
+# • Database Services (Docker) - MongoDB, Redis
+# • iOS Simulator (Xcode) - Optional, see below
+#
+# Package Manager: pnpm (consistent across all services)
+# Usage: ./start [--ios]
+#   --ios   Also launch iOS simulator after Metro starts
+# Stop:  Ctrl+C
+# ========================================
+
+# LifeBuddy - Complete Development Environment Startup Script
+# This script starts all services: Backend API, Web App, Mobile Metro, and Database
+
+set -e  # Exit on any error
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Configuration
+BACKEND_PORT=3001
+WEB_PORT=5174
+MOBILE_PORT=8083
+DB_PORT=27017
+REDIS_PORT=6379
+
+# Project root directory
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+# Logging function
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[$(date +'%H:%M:%S')] WARNING:${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[$(date +'%H:%M:%S')] ERROR:${NC} $1"
+}
+
+info() {
+    echo -e "${BLUE}[$(date +'%H:%M:%S')] INFO:${NC} $1"
+}
+
+success() {
+    echo -e "${GREEN}[$(date +'%H:%M:%S')] SUCCESS:${NC} $1"
+}
+
+# Check if ports are available
+check_port() {
+    local port=$1
+    local service=$2
+    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+        warn "Port $port is already in use by $service"
+        return 1
+    else
+        log "Port $port is available for $service"
+        return 0
+    fi
+}
+
+# Kill processes on specific ports
+kill_port() {
+    local port=$1
+    local service=$2
+    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+        warn "Killing existing process on port $port ($service)"
+        lsof -ti:$port | xargs kill -9 2>/dev/null || true
+        sleep 2
+    fi
+}
+
+# Check dependencies
+check_dependencies() {
+    log "Checking dependencies..."
+    
+    # Check Node.js
+    if ! command -v node &> /dev/null; then
+        error "Node.js is not installed"
+        exit 1
+    fi
+    
+    # Check pnpm
+    if ! command -v pnpm &> /dev/null; then
+        error "pnpm is not installed"
+        exit 1
+    fi
+    
+    # Check React Native CLI
+    if ! command -v npx &> /dev/null; then
+        error "npx is not available"
+        exit 1
+    fi
+    
+    success "All dependencies are available"
+}
+
+# Install dependencies if needed
+install_dependencies() {
+    log "Installing dependencies..."
+    
+    # Root dependencies
+    if [ ! -d "node_modules" ]; then
+        info "Installing root dependencies..."
+        pnpm install
+    else
+        info "Root dependencies already installed"
+    fi
+    
+    # Backend dependencies
+    if [ ! -d "backend/node_modules" ]; then
+        info "Installing backend dependencies..."
+        cd backend && pnpm install && cd ..
+    else
+        info "Backend dependencies already installed"
+    fi
+    
+    # Web dependencies
+    if [ ! -d "web/node_modules" ]; then
+        info "Installing web dependencies..."
+        cd web && pnpm install && cd ..
+    else
+        info "Web dependencies already installed"
+    fi
+    
+    # Mobile dependencies
+    if [ ! -d "mobile/node_modules" ]; then
+        info "Installing mobile dependencies..."
+        cd mobile && pnpm install && cd ..
+    else
+        info "Mobile dependencies already installed"
+    fi
+    
+    success "Dependencies installed"
+}
+
+# Start Docker services (MongoDB, Redis, etc.)
+start_docker_services() {
+    log "Starting Docker services..."
+    
+    if ! command -v docker &> /dev/null; then
+        warn "Docker is not installed. Skipping database services."
+        return 0
+    fi
+    
+    if ! docker info &> /dev/null; then
+        warn "Docker daemon is not running. Skipping database services."
+        return 0
+    fi
+    
+    # Check if docker-compose.yml exists
+    if [ -f "docker-compose.yml" ]; then
+        info "Starting Docker Compose services..."
+        docker-compose up -d
+        
+        # Wait for services to be ready
+        log "Waiting for database services to be ready..."
+        sleep 10
+        
+        # Check MongoDB
+        if docker-compose ps | grep -q "mongo.*Up"; then
+            success "MongoDB is running"
+        else
+            warn "MongoDB failed to start"
+        fi
+        
+        # Check Redis
+        if docker-compose ps | grep -q "redis.*Up"; then
+            success "Redis is running"
+        else
+            warn "Redis failed to start"
+        fi
+    else
+        warn "docker-compose.yml not found. Skipping database services."
+    fi
+}
+
+# Start backend API
+start_backend() {
+    log "Starting Backend API on port $BACKEND_PORT..."
+    
+    kill_port $BACKEND_PORT "Backend API"
+    
+    cd backend
+    pnpm run dev > ../logs/backend.log 2>&1 &
+    BACKEND_PID=$!
+    cd ..
+    
+    # Wait for backend to start
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        if curl -s http://localhost:$BACKEND_PORT/health > /dev/null 2>&1; then
+            success "Backend API is running on http://localhost:$BACKEND_PORT"
+            return 0
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+    
+    error "Backend API failed to start"
+    return 1
+}
+
+# Start web app
+start_web() {
+    log "Starting Web App on port $WEB_PORT..."
+    
+    kill_port $WEB_PORT "Web App"
+    
+    cd web
+    pnpm run dev > ../logs/web.log 2>&1 &
+    WEB_PID=$!
+    cd ..
+    
+    # Wait for web app to start
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        if curl -s http://localhost:$WEB_PORT > /dev/null 2>&1; then
+            success "Web App is running on http://localhost:$WEB_PORT"
+            return 0
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+    
+    error "Web App failed to start"
+    return 1
+}
+
+# Start mobile Metro bundler
+start_mobile() {
+    log "Starting Mobile Metro bundler on port $MOBILE_PORT..."
+    
+    kill_port $MOBILE_PORT "Mobile Metro"
+    
+    cd mobile
+    pnpm start > ../logs/mobile.log 2>&1 &
+    MOBILE_PID=$!
+    cd ..
+    
+    # Wait for Metro to start
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        if lsof -Pi :$MOBILE_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+            success "Mobile Metro bundler is running on http://localhost:$MOBILE_PORT"
+            return 0
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+    
+    error "Mobile Metro bundler failed to start"
+    return 1
+}
+
+# Start iOS simulator (optional)
+start_ios() {
+    log "Launching iOS simulator using Xcode..."
+    
+    # Check if iOS project exists
+    if [ ! -d "mobile/ios" ]; then
+        error "iOS project not found. Run 'cd mobile && pnpm run pod-install' first."
+        return 1
+    fi
+    
+    # Check if CocoaPods dependencies are installed
+    if [ ! -d "mobile/ios/Pods" ]; then
+        warn "CocoaPods dependencies not installed. Installing now..."
+        cd mobile && pnpm run pod-install && cd ..
+    fi
+    
+    cd mobile
+    pnpm run ios > ../logs/ios.log 2>&1 &
+    IOS_PID=$!
+    cd ..
+    success "iOS simulator launch command issued (see logs/ios.log)"
+}
+
+# Create logs directory
+setup_logs() {
+    mkdir -p logs
+    log "Logs directory created at logs/"
+}
+
+# Display status
+show_status() {
+    echo
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}        LifeBuddy Status Report${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    echo
+    
+    # Backend status
+    if curl -s http://localhost:$BACKEND_PORT/health > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Backend API${NC} - http://localhost:$BACKEND_PORT"
+        echo -e "   Health: http://localhost:$BACKEND_PORT/health"
+        echo -e "   API Docs: http://localhost:$BACKEND_PORT/api"
+    else
+        echo -e "${RED}❌ Backend API${NC} - Not responding"
+    fi
+    
+    # Web app status
+    if curl -s http://localhost:$WEB_PORT > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Web App${NC} - http://localhost:$WEB_PORT"
+    else
+        echo -e "${RED}❌ Web App${NC} - Not responding"
+    fi
+    
+    # Mobile Metro status
+    if lsof -Pi :$MOBILE_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Mobile Metro${NC} - http://localhost:$MOBILE_PORT"
+    else
+        echo -e "${RED}❌ Mobile Metro${NC} - Not responding"
+    fi
+    
+    # Database status
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        if docker-compose ps | grep -q "mongo.*Up"; then
+            echo -e "${GREEN}✅ MongoDB${NC} - Running in Docker"
+        else
+            echo -e "${YELLOW}⚠️  MongoDB${NC} - Not running"
+        fi
+        
+        if docker-compose ps | grep -q "redis.*Up"; then
+            echo -e "${GREEN}✅ Redis${NC} - Running in Docker"
+        else
+            echo -e "${YELLOW}⚠️  Redis${NC} - Not running"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  Database Services${NC} - Docker not available"
+    fi
+    
+    echo
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${PURPLE}📱 To run mobile app:${NC}"
+    echo -e "   iOS: cd mobile && pnpm run ios"
+    echo -e "   Android: cd mobile && pnpm run android"
+    echo -e "${PURPLE}📊 Logs:${NC}"
+    echo -e "   Backend: tail -f logs/backend.log"
+    echo -e "   Web: tail -f logs/web.log"
+    echo -e "   Mobile: tail -f logs/mobile.log"
+    echo -e "${CYAN}========================================${NC}"
+}
+
+# Cleanup function
+cleanup() {
+    log "Shutting down services..."
+    
+    # Kill background processes
+    if [ ! -z "$BACKEND_PID" ]; then
+        kill $BACKEND_PID 2>/dev/null || true
+    fi
+    
+    if [ ! -z "$WEB_PID" ]; then
+        kill $WEB_PID 2>/dev/null || true
+    fi
+    
+    if [ ! -z "$MOBILE_PID" ]; then
+        kill $MOBILE_PID 2>/dev/null || true
+    fi
+
+    if [ ! -z "$IOS_PID" ]; then
+        kill $IOS_PID 2>/dev/null || true
+    fi
+    
+    success "All services stopped"
+}
+
+# Trap Ctrl+C
+trap cleanup INT
+
+# Main execution
+main() {
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}    LifeBuddy Development Environment${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    echo
+    
+    # Setup
+    setup_logs
+    check_dependencies
+    install_dependencies
+    
+    # Start services
+    start_docker_services
+    start_backend
+    start_web
+    start_mobile
+    
+    # Optionally launch iOS simulator
+    if [[ "$1" == "--ios" ]]; then
+        start_ios
+    fi
+    
+    # Show status
+    show_status
+    
+    # Keep script running
+    log "All services started successfully!"
+    log "Press Ctrl+C to stop all services"
+    
+    # Wait for user to stop
+    wait
+}
+
+# Run main function
+main "$@" 

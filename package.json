@@ -1,0 +1,79 @@
+{
+  "name": "lifebuddy-app",
+  "version": "1.0.0",
+  "description": "AI-powered personal growth and goal-tracking mobile app",
+  "main": "index.js",
+  "scripts": {
+    "start": "./start",
+    "dev": "concurrently \"pnpm run dev:backend\" \"pnpm run dev:mobile\"",
+    "dev:backend": "cd backend && pnpm run dev",
+    "dev:web": "cd web && pnpm run dev",
+    "dev:mobile": "cd mobile && pnpm start",
+    "build": "pnpm run build:backend && pnpm run build:mobile",
+    "build:backend": "cd backend && pnpm run build",
+    "build:mobile": "cd mobile && pnpm run build:android",
+    "test": "pnpm run test:backend && pnpm run test:mobile",
+    "test:backend": "cd backend && pnpm test",
+    "test:mobile": "cd mobile && pnpm test",
+    "lint": "pnpm run lint:backend && pnpm run lint:mobile",
+    "lint:backend": "cd backend && pnpm run lint",
+    "lint:mobile": "cd mobile && pnpm run lint",
+    "lint:fix": "pnpm run lint:fix:backend && pnpm run lint:fix:mobile",
+    "lint:fix:backend": "cd backend && pnpm run lint:fix",
+    "lint:fix:mobile": "cd mobile && pnpm run lint:fix",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "setup": "pnpm install && cd backend && pnpm install && cd ../mobile && pnpm install",
+    "setup:mobile": "cd mobile && pnpm run pod-install",
+    "clean": "pnpm run clean:backend && pnpm run clean:mobile",
+    "clean:backend": "cd backend && pnpm run clean",
+    "clean:mobile": "cd mobile && pnpm run clean",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "keywords": [
+    "ai",
+    "goals",
+    "productivity",
+    "personal-growth",
+    "mobile-app",
+    "react-native",
+    "nodejs",
+    "mongodb"
+  ],
+  "author": "LifeBuddy Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "prettier": "^3.1.1",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "commit-msg": "node scripts/validate-commit-msg.js"
+    }
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/lifebuddy-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/lifebuddy-app/issues"
+  },
+  "homepage": "https://github.com/your-username/lifebuddy-app#readme"
+} 
