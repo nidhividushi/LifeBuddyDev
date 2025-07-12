@@ -507,7 +507,7 @@ main() {
     setup_environment
     check_dependencies "$@"
     install_dependencies
-    setup_ios "$@"
+    setup_ios # Always run iOS setup
     
     # Start services
     start_docker_services
@@ -515,10 +515,8 @@ main() {
     start_web
     start_mobile
     
-    # Optionally launch iOS simulator
-    if [[ "$1" == "--ios" ]]; then
-        start_ios "$@"
-    fi
+    # Always launch iOS simulator by default
+    start_ios
     
     # Show status
     show_status
