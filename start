@@ -270,6 +270,17 @@ start_docker_services() {
         return 0
     fi
     
+    # Ensure backend/pnpm-lock.yaml exists for Docker build
+    if [ ! -f "backend/pnpm-lock.yaml" ]; then
+        if [ -f "pnpm-lock.yaml" ]; then
+            echo "Copying root pnpm-lock.yaml to backend/ for Docker build..."
+            cp pnpm-lock.yaml backend/
+        else
+            echo "Generating backend/pnpm-lock.yaml..."
+            cd backend && pnpm install && cd ..
+        fi
+    fi
+
     # Check if docker-compose.yml exists
     if [ -f "docker-compose.yml" ]; then
         info "Starting Docker Compose services..."
@@ -294,6 +305,27 @@ start_docker_services() {
         fi
     else
         warn "docker-compose.yml not found. Skipping database services."
+    fi
+}
+
+# --- Docker Container Setup ---
+start_containers() {
+    log "Checking and starting required Docker containers (mongodb, redis, elasticsearch, minio, kibana)..."
+    local containers=(mongodb redis elasticsearch minio kibana)
+    local started_any=0
+    for c in "${containers[@]}"; do
+        if ! docker ps --format '{{.Names}}' | grep -q "lifebuddy-$c"; then
+            info "Starting $c container..."
+            docker-compose up -d $c
+            started_any=1
+        else
+            info "$c container already running."
+        fi
+    done
+    if [ $started_any -eq 1 ]; then
+        success "All required containers are now running."
+    else
+        success "All required containers were already running."
     fi
 }
 
@@ -495,6 +527,20 @@ cleanup() {
 # Trap Ctrl+C
 trap cleanup INT
 
+# Ensure Docker Desktop is running on macOS before starting services
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    if ! pgrep -f "Docker Desktop" > /dev/null; then
+        echo "Starting Docker Desktop..."
+        open -a "Docker"
+        # Wait for Docker to be ready
+        while ! docker info > /dev/null 2>&1; do
+            echo "Waiting for Docker to start..."
+            sleep 2
+        done
+        echo "Docker Desktop is running."
+    fi
+fi
+
 # Main execution
 main() {
     echo -e "${CYAN}========================================${NC}"
@@ -510,6 +556,7 @@ main() {
     setup_ios # Always run iOS setup
     
     # Start services
+    start_containers
     start_docker_services
     start_backend
     start_web
