@@ -1,63 +1,49 @@
-# <type>(<scope>): <subject>
-#
-# <body>
-#
-# <footer>
+# LifeBuddyDev - Git Commit Message Template
+# Format: feat(<scope>): v.0.0.x - Added [feature/component]
+
+# feat(<scope>): v.0.0.x - Added [brief description]
 
 # Types:
-#   feat     (new feature for the user, not a new feature for build script)
-#   fix      (bug fix for the user, not a fix to a build script)
-#   docs     (changes to the documentation)
-#   style    (formatting, missing semi colons, etc; no production code change)
-#   refactor (refactoring production code, eg. renaming a variable)
-#   test     (adding missing tests, refactoring tests; no production code change)
-#   chore    (updating grunt tasks etc; no production code change)
+#   feat     - New feature
+#   fix      - Bug fix
+#   docs     - Documentation changes
+#   style    - Code style changes (formatting, etc.)
+#   refactor - Code refactoring
+#   test     - Adding or updating tests
+#   chore    - Maintenance tasks, dependencies, etc.
+#   perf     - Performance improvements
+#   ci       - CI/CD changes
+#   build    - Build system changes
 
 # Scopes:
-#   mobile   (mobile app changes)
-#   backend  (backend API changes)
-#   ui       (UI/UX changes)
-#   auth     (authentication related)
-#   goals    (goal management features)
-#   chat     (conversation/AI features)
-#   db       (database changes)
-#   api      (API changes)
-#   config   (configuration changes)
+#   mobile   - Mobile app changes
+#   backend  - Backend API changes
+#   web      - Web app changes
+#   vercel   - Vercel app changes
+#   ios      - iOS specific changes
+#   android  - Android specific changes
+#   docs     - Documentation changes
+#   setup    - Project setup changes
+#   deps     - Dependency changes
 
 # Examples:
-#   feat(goals): add goal template system
-#   fix(auth): resolve token refresh issue
-#   docs(api): update authentication endpoints
-#   style(mobile): fix linting issues
-#   refactor(backend): improve error handling
-#   test(mobile): add unit tests for GoalCard component
-#   chore(config): update dependencies
+# feat(setup): v.0.0.1 - Added git commit template
+# docs(setup): v.0.0.2 - Added project status documentation
+# feat(backend): v.0.0.3 - Added database connection
+# feat(auth): v.0.0.4 - Added authentication system
+# feat(mobile): v.0.0.5 - Added mobile app screens
 
-# Rules:
-#   - Use imperative mood ("add" not "added" or "adds")
-#   - Don't capitalize first letter
-#   - No dot (.) at the end
-#   - Limit subject line to 50 characters
-#   - Wrap body at 72 characters
-#   - Use footer to reference issues
+# Body (optional):
+# - More detailed description of changes
+# - Breaking changes
+# - Related issues
 
-# LifeBuddy Commit Message Template
-# =================================
+# Footer (optional):
+# - Closes #123
+# - Breaking changes
+# - Co-authored-by: Name <email>
 
-# Type of change (feat, fix, docs, style, refactor, test, chore):
-# 
+# Current version: v.0.0.1
+# Next version: v.0.0.2
 
-# Scope of change (mobile, backend, ui, auth, goals, chat, db, api, config):
-# 
-
-# Short description (max 50 chars):
-# 
-
-# Detailed description (optional, wrap at 72 chars):
-# 
-
-# Breaking changes (optional):
-# 
-
-# Related issues (optional):
-# Closes #123, Fixes #456 
+feat(setup): v.0.0.1 - Added 
