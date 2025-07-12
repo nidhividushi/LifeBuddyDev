@@ -87,26 +87,89 @@ kill_port() {
     fi
 }
 
+# Setup environment variables
+setup_environment() {
+    log "Setting up environment variables..."
+    
+    # Check if .env file exists
+    if [ ! -f ".env" ]; then
+        if [ -f "env.example" ]; then
+            info "Creating .env file from env.example..."
+            cp env.example .env
+            warn "Please update .env file with your actual API keys and configuration"
+        else
+            warn "No env.example found. Creating basic .env file..."
+            cat > .env << EOF
+# LifeBuddy Environment Variables
+NODE_ENV=development
+PORT=3001
+MONGODB_URI=mongodb://admin:lifebuddy123@localhost:27017/lifebuddy?authSource=admin
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+OPENAI_API_KEY=your-openai-api-key
+EOF
+        fi
+    else
+        info ".env file already exists"
+    fi
+    
+    # Check if backend .env exists
+    if [ ! -f "backend/.env" ]; then
+        info "Creating backend .env file..."
+        cp .env backend/.env 2>/dev/null || cp env.example backend/.env 2>/dev/null || true
+    fi
+    
+    success "Environment variables configured"
+}
+
 # Check dependencies
 check_dependencies() {
     log "Checking dependencies..."
     
     # Check Node.js
     if ! command -v node &> /dev/null; then
-        error "Node.js is not installed"
+        error "Node.js is not installed. Please install Node.js 18+ from https://nodejs.org/"
+        exit 1
+    fi
+    
+    # Check Node.js version
+    NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+    if [ "$NODE_VERSION" -lt 18 ]; then
+        error "Node.js version 18+ is required. Current version: $(node -v)"
         exit 1
     fi
     
     # Check pnpm
     if ! command -v pnpm &> /dev/null; then
-        error "pnpm is not installed"
-        exit 1
+        error "pnpm is not installed. Installing pnpm..."
+        npm install -g pnpm
     fi
     
     # Check React Native CLI
     if ! command -v npx &> /dev/null; then
         error "npx is not available"
         exit 1
+    fi
+    
+    # Check Xcode (for iOS development)
+    if [[ "$1" == "--ios" ]]; then
+        if ! command -v xcodebuild &> /dev/null; then
+            error "Xcode is not installed. Please install Xcode from the App Store"
+            exit 1
+        fi
+        
+        # Check iOS Simulator
+        if ! xcrun simctl list devices | grep -q "iPhone"; then
+            warn "No iOS simulators found. Please open Xcode and install iOS simulators"
+        fi
+    fi
+    
+    # Check CocoaPods (for iOS development)
+    if [[ "$1" == "--ios" ]]; then
+        if ! command -v pod &> /dev/null; then
+            error "CocoaPods is not installed. Please install CocoaPods: sudo gem install cocoapods"
+            exit 1
+        fi
     fi
     
     success "All dependencies are available"
@@ -148,7 +211,47 @@ install_dependencies() {
         info "Mobile dependencies already installed"
     fi
     
+    # Vercel app dependencies
+    if [ -d "vercel_v0_lifebuddy-app" ] && [ ! -d "vercel_v0_lifebuddy-app/node_modules" ]; then
+        info "Installing Vercel app dependencies..."
+        cd vercel_v0_lifebuddy-app && pnpm install && cd ..
+    fi
+    
     success "Dependencies installed"
+}
+
+# Setup iOS development environment
+setup_ios() {
+    if [[ "$1" != "--ios" ]]; then
+        return 0
+    fi
+    
+    log "Setting up iOS development environment..."
+    
+    # Check if iOS project exists
+    if [ ! -d "mobile/ios" ]; then
+        error "iOS project not found in mobile/ios"
+        return 1
+    fi
+    
+    # Check if CocoaPods dependencies are installed
+    if [ ! -d "mobile/ios/Pods" ]; then
+        info "Installing CocoaPods dependencies..."
+        cd mobile/ios
+        pod install
+        cd ../..
+        success "CocoaPods dependencies installed"
+    else
+        info "CocoaPods dependencies already installed"
+    fi
+    
+    # Check if Xcode workspace exists
+    if [ ! -f "mobile/ios/LifeBuddy.xcworkspace" ]; then
+        error "Xcode workspace not found. Please run 'cd mobile && pnpm run pod-install'"
+        return 1
+    fi
+    
+    success "iOS development environment ready"
 }
 
 # Start Docker services (MongoDB, Redis, etc.)
@@ -157,11 +260,13 @@ start_docker_services() {
     
     if ! command -v docker &> /dev/null; then
         warn "Docker is not installed. Skipping database services."
+        warn "Please install Docker Desktop from https://www.docker.com/products/docker-desktop/"
         return 0
     fi
     
     if ! docker info &> /dev/null; then
         warn "Docker daemon is not running. Skipping database services."
+        warn "Please start Docker Desktop"
         return 0
     fi
     
@@ -214,7 +319,7 @@ start_backend() {
         attempts=$((attempts + 1))
     done
     
-    error "Backend API failed to start"
+    error "Backend API failed to start. Check logs/backend.log for details"
     return 1
 }
 
@@ -240,7 +345,7 @@ start_web() {
         attempts=$((attempts + 1))
     done
     
-    error "Web App failed to start"
+    error "Web App failed to start. Check logs/web.log for details"
     return 1
 }
 
@@ -266,12 +371,16 @@ start_mobile() {
         attempts=$((attempts + 1))
     done
     
-    error "Mobile Metro bundler failed to start"
+    error "Mobile Metro bundler failed to start. Check logs/mobile.log for details"
     return 1
 }
 
 # Start iOS simulator (optional)
 start_ios() {
+    if [[ "$1" != "--ios" ]]; then
+        return 0
+    fi
+    
     log "Launching iOS simulator using Xcode..."
     
     # Check if iOS project exists
@@ -283,7 +392,7 @@ start_ios() {
     # Check if CocoaPods dependencies are installed
     if [ ! -d "mobile/ios/Pods" ]; then
         warn "CocoaPods dependencies not installed. Installing now..."
-        cd mobile && pnpm run pod-install && cd ..
+        cd mobile/ios && pod install && cd ../..
     fi
     
     cd mobile
@@ -395,8 +504,10 @@ main() {
     
     # Setup
     setup_logs
-    check_dependencies
+    setup_environment
+    check_dependencies "$@"
     install_dependencies
+    setup_ios "$@"
     
     # Start services
     start_docker_services
@@ -406,7 +517,7 @@ main() {
     
     # Optionally launch iOS simulator
     if [[ "$1" == "--ios" ]]; then
-        start_ios
+        start_ios "$@"
     fi
     
     # Show status

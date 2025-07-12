@@ -1,0 +1,372 @@
+#!/bin/bash
+
+# ========================================
+# LifeBuddyDev - Complete Setup Script
+# ========================================
+# 
+# This script sets up everything needed for LifeBuddyDev:
+# • Git repository and configuration
+# • Environment variables
+# • Dependencies installation
+# • iOS development environment
+# • Docker services
+# • Vercel configuration
+#
+# Usage: ./scripts/setup-complete.sh [--ios] [--vercel]
+# ========================================
+
+set -e  # Exit on any error
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Project root directory
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+# Logging function
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[$(date +'%H:%M:%S')] WARNING:${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[$(date +'%H:%M:%S')] ERROR:${NC} $1"
+}
+
+info() {
+    echo -e "${BLUE}[$(date +'%H:%M:%S')] INFO:${NC} $1"
+}
+
+success() {
+    echo -e "${GREEN}[$(date +'%H:%M:%S')] SUCCESS:${NC} $1"
+}
+
+# Parse command line arguments
+IOS_SETUP=false
+VERCEL_SETUP=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --ios)
+            IOS_SETUP=true
+            shift
+            ;;
+        --vercel)
+            VERCEL_SETUP=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--ios] [--vercel]"
+            exit 1
+            ;;
+    esac
+done
+
+# Setup Git repository
+setup_git() {
+    log "Setting up Git repository..."
+    
+    # Initialize git if not already done
+    if [ ! -d ".git" ]; then
+        info "Initializing Git repository..."
+        git init
+    else
+        info "Git repository already exists"
+    fi
+    
+    # Configure git commit template
+    if [ -f ".gitmessage" ]; then
+        info "Configuring git commit template..."
+        git config commit.template .gitmessage
+    fi
+    
+    # Set up git hooks if they exist
+    if [ -d "scripts/git-hooks" ]; then
+        info "Setting up git hooks..."
+        cp scripts/git-hooks/* .git/hooks/
+        chmod +x .git/hooks/*
+    fi
+    
+    success "Git repository configured"
+}
+
+# Setup environment variables
+setup_environment() {
+    log "Setting up environment variables..."
+    
+    # Create .env file from env.example if it doesn't exist
+    if [ ! -f ".env" ]; then
+        if [ -f "env.example" ]; then
+            info "Creating .env file from env.example..."
+            cp env.example .env
+            warn "Please update .env file with your actual API keys and configuration"
+        else
+            warn "No env.example found. Creating basic .env file..."
+            cat > .env << EOF
+# LifeBuddy Environment Variables
+NODE_ENV=development
+PORT=3001
+MONGODB_URI=mongodb://admin:lifebuddy123@localhost:27017/lifebuddy?authSource=admin
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+OPENAI_API_KEY=your-openai-api-key
+EOF
+        fi
+    else
+        info ".env file already exists"
+    fi
+    
+    # Create backend .env
+    if [ ! -f "backend/.env" ]; then
+        info "Creating backend .env file..."
+        cp .env backend/.env 2>/dev/null || cp env.example backend/.env 2>/dev/null || true
+    fi
+    
+    # Create mobile .env
+    if [ ! -f "mobile/.env" ]; then
+        info "Creating mobile .env file..."
+        cp .env mobile/.env 2>/dev/null || cp env.example mobile/.env 2>/dev/null || true
+    fi
+    
+    success "Environment variables configured"
+}
+
+# Check and install dependencies
+check_dependencies() {
+    log "Checking dependencies..."
+    
+    # Check Node.js
+    if ! command -v node &> /dev/null; then
+        error "Node.js is not installed. Please install Node.js 18+ from https://nodejs.org/"
+        exit 1
+    fi
+    
+    # Check Node.js version
+    NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+    if [ "$NODE_VERSION" -lt 18 ]; then
+        error "Node.js version 18+ is required. Current version: $(node -v)"
+        exit 1
+    fi
+    
+    # Check pnpm
+    if ! command -v pnpm &> /dev/null; then
+        error "pnpm is not installed. Installing pnpm..."
+        npm install -g pnpm
+    fi
+    
+    # Check iOS dependencies if needed
+    if [ "$IOS_SETUP" = true ]; then
+        if ! command -v xcodebuild &> /dev/null; then
+            error "Xcode is not installed. Please install Xcode from the App Store"
+            exit 1
+        fi
+        
+        if ! command -v pod &> /dev/null; then
+            error "CocoaPods is not installed. Please install CocoaPods: sudo gem install cocoapods"
+            exit 1
+        fi
+    fi
+    
+    success "All dependencies are available"
+}
+
+# Install all dependencies
+install_dependencies() {
+    log "Installing dependencies..."
+    
+    # Root dependencies
+    info "Installing root dependencies..."
+    pnpm install
+    
+    # Backend dependencies
+    info "Installing backend dependencies..."
+    cd backend && pnpm install && cd ..
+    
+    # Web dependencies
+    info "Installing web dependencies..."
+    cd web && pnpm install && cd ..
+    
+    # Mobile dependencies
+    info "Installing mobile dependencies..."
+    cd mobile && pnpm install && cd ..
+    
+    # Vercel app dependencies
+    if [ -d "vercel_v0_lifebuddy-app" ]; then
+        info "Installing Vercel app dependencies..."
+        cd vercel_v0_lifebuddy-app && pnpm install && cd ..
+    fi
+    
+    success "All dependencies installed"
+}
+
+# Setup iOS development environment
+setup_ios() {
+    if [ "$IOS_SETUP" != true ]; then
+        return 0
+    fi
+    
+    log "Setting up iOS development environment..."
+    
+    # Check if iOS project exists
+    if [ ! -d "mobile/ios" ]; then
+        error "iOS project not found in mobile/ios"
+        return 1
+    fi
+    
+    # Install CocoaPods dependencies
+    info "Installing CocoaPods dependencies..."
+    cd mobile/ios
+    pod install
+    cd ../..
+    
+    # Check if Xcode workspace exists
+    if [ ! -f "mobile/ios/LifeBuddy.xcworkspace" ]; then
+        error "Xcode workspace not found after pod install"
+        return 1
+    fi
+    
+    success "iOS development environment ready"
+}
+
+# Setup Docker services
+setup_docker() {
+    log "Setting up Docker services..."
+    
+    if ! command -v docker &> /dev/null; then
+        warn "Docker is not installed. Please install Docker Desktop from https://www.docker.com/products/docker-desktop/"
+        return 0
+    fi
+    
+    if ! docker info &> /dev/null; then
+        warn "Docker daemon is not running. Please start Docker Desktop"
+        return 0
+    fi
+    
+    # Check if docker-compose.yml exists
+    if [ -f "docker-compose.yml" ]; then
+        info "Starting Docker Compose services..."
+        docker-compose up -d
+        
+        # Wait for services to be ready
+        log "Waiting for database services to be ready..."
+        sleep 15
+        
+        # Check services
+        if docker-compose ps | grep -q "mongo.*Up"; then
+            success "MongoDB is running"
+        else
+            warn "MongoDB failed to start"
+        fi
+        
+        if docker-compose ps | grep -q "redis.*Up"; then
+            success "Redis is running"
+        else
+            warn "Redis failed to start"
+        fi
+    else
+        warn "docker-compose.yml not found"
+    fi
+}
+
+# Setup Vercel
+setup_vercel() {
+    if [ "$VERCEL_SETUP" != true ]; then
+        return 0
+    fi
+    
+    log "Setting up Vercel..."
+    
+    # Check if Vercel CLI is installed
+    if ! command -v vercel &> /dev/null; then
+        info "Installing Vercel CLI..."
+        npm install -g vercel
+    fi
+    
+    # Check if vercel_v0_lifebuddy-app exists
+    if [ ! -d "vercel_v0_lifebuddy-app" ]; then
+        warn "Vercel app directory not found"
+        return 0
+    fi
+    
+    info "Vercel CLI is ready. Run 'cd vercel_v0_lifebuddy-app && vercel' to deploy"
+    success "Vercel setup complete"
+}
+
+# Create necessary directories
+create_directories() {
+    log "Creating necessary directories..."
+    
+    mkdir -p logs
+    mkdir -p backend/logs
+    mkdir -p mobile/logs
+    mkdir -p web/logs
+    
+    success "Directories created"
+}
+
+# Display setup summary
+show_summary() {
+    echo
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}        LifeBuddyDev Setup Complete${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    echo
+    
+    echo -e "${GREEN}✅ Git repository configured${NC}"
+    echo -e "${GREEN}✅ Environment variables set up${NC}"
+    echo -e "${GREEN}✅ Dependencies installed${NC}"
+    
+    if [ "$IOS_SETUP" = true ]; then
+        echo -e "${GREEN}✅ iOS development environment ready${NC}"
+    fi
+    
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        echo -e "${GREEN}✅ Docker services configured${NC}"
+    fi
+    
+    if [ "$VERCEL_SETUP" = true ]; then
+        echo -e "${GREEN}✅ Vercel CLI installed${NC}"
+    fi
+    
+    echo
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${PURPLE}🚀 Next steps:${NC}"
+    echo -e "   1. Update .env file with your API keys"
+    echo -e "   2. Run './start' to start development servers"
+    echo -e "   3. For iOS: './start --ios'"
+    echo -e "   4. For Vercel: 'cd vercel_v0_lifebuddy-app && vercel'"
+    echo -e "${CYAN}========================================${NC}"
+}
+
+# Main execution
+main() {
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}    LifeBuddyDev Complete Setup${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    echo
+    
+    create_directories
+    setup_git
+    setup_environment
+    check_dependencies
+    install_dependencies
+    setup_ios
+    setup_docker
+    setup_vercel
+    
+    show_summary
+}
+
+# Run main function
+main "$@" 
