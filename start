@@ -12,8 +12,11 @@
 # • iOS Simulator (Xcode) - Optional, see below
 #
 # Package Manager: pnpm (consistent across all services)
-# Usage: ./start [--ios]
-#   --ios   Also launch iOS simulator after Metro starts
+# Usage: ./start [--ios] [--dev|--prod] [--no-simulator]
+#   --ios          Launch iOS simulator after Metro starts
+#   --dev          Development mode (default) - launches simulator
+#   --prod         Production mode - no simulator
+#   --no-simulator Skip simulator launch even in dev mode
 # Stop:  Ctrl+C
 # ========================================
 
@@ -37,6 +40,59 @@ WEB_PORT=5174
 MOBILE_PORT=8083
 DB_PORT=27017
 REDIS_PORT=6379
+
+# Environment detection
+ENVIRONMENT="dev"
+LAUNCH_IOS=false
+SKIP_SIMULATOR=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --ios)
+            LAUNCH_IOS=true
+            shift
+            ;;
+        --dev)
+            ENVIRONMENT="dev"
+            shift
+            ;;
+        --prod)
+            ENVIRONMENT="prod"
+            SKIP_SIMULATOR=true
+            shift
+            ;;
+        --no-simulator)
+            SKIP_SIMULATOR=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--ios] [--dev|--prod] [--no-simulator]"
+            echo ""
+            echo "Options:"
+            echo "  --ios          Launch iOS simulator after Metro starts"
+            echo "  --dev          Development mode (default) - launches simulator"
+            echo "  --prod         Production mode - no simulator"
+            echo "  --no-simulator Skip simulator launch even in dev mode"
+            echo "  --help, -h     Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Auto-detect iOS launch in dev mode unless explicitly disabled
+if [[ "$ENVIRONMENT" == "dev" && "$LAUNCH_IOS" == false && "$SKIP_SIMULATOR" == false ]]; then
+    # Check if we're on macOS and have Xcode
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v xcodebuild &> /dev/null; then
+        LAUNCH_IOS=true
+        info "Auto-detected iOS development environment"
+    fi
+fi
 
 # Project root directory
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -89,7 +145,7 @@ kill_port() {
 
 # Setup environment variables
 setup_environment() {
-    log "Setting up environment variables..."
+    log "Setting up environment variables for $ENVIRONMENT mode..."
     
     # Check if .env file exists
     if [ ! -f ".env" ]; then
@@ -101,7 +157,7 @@ setup_environment() {
             warn "No env.example found. Creating basic .env file..."
             cat > .env << EOF
 # LifeBuddy Environment Variables
-NODE_ENV=development
+NODE_ENV=$ENVIRONMENT
 PORT=3001
 MONGODB_URI=mongodb://admin:lifebuddy123@localhost:27017/lifebuddy?authSource=admin
 REDIS_URL=redis://localhost:6379
@@ -110,7 +166,13 @@ OPENAI_API_KEY=your-openai-api-key
 EOF
         fi
     else
-        info ".env file already exists"
+        # Update NODE_ENV in existing .env
+        if [[ "$ENVIRONMENT" == "prod" ]]; then
+            sed -i.bak 's/NODE_ENV=.*/NODE_ENV=production/' .env
+        else
+            sed -i.bak 's/NODE_ENV=.*/NODE_ENV=development/' .env
+        fi
+        info ".env file updated for $ENVIRONMENT mode"
     fi
     
     # Check if backend .env exists
@@ -119,7 +181,7 @@ EOF
         cp .env backend/.env 2>/dev/null || cp env.example backend/.env 2>/dev/null || true
     fi
     
-    success "Environment variables configured"
+    success "Environment variables configured for $ENVIRONMENT mode"
 }
 
 # Check dependencies
@@ -152,7 +214,7 @@ check_dependencies() {
     fi
     
     # Check Xcode (for iOS development)
-    if [[ "$1" == "--ios" ]]; then
+    if [[ "$LAUNCH_IOS" == true ]]; then
         if ! command -v xcodebuild &> /dev/null; then
             error "Xcode is not installed. Please install Xcode from the App Store"
             exit 1
@@ -162,10 +224,8 @@ check_dependencies() {
         if ! xcrun simctl list devices | grep -q "iPhone"; then
             warn "No iOS simulators found. Please open Xcode and install iOS simulators"
         fi
-    fi
-    
-    # Check CocoaPods (for iOS development)
-    if [[ "$1" == "--ios" ]]; then
+        
+        # Check CocoaPods
         if ! command -v pod &> /dev/null; then
             error "CocoaPods is not installed. Please install CocoaPods: sudo gem install cocoapods"
             exit 1
@@ -211,18 +271,12 @@ install_dependencies() {
         info "Mobile dependencies already installed"
     fi
     
-    # Vercel app dependencies
-    if [ -d "vercel_v0_lifebuddy-app" ] && [ ! -d "vercel_v0_lifebuddy-app/node_modules" ]; then
-        info "Installing Vercel app dependencies..."
-        cd vercel_v0_lifebuddy-app && pnpm install && cd ..
-    fi
-    
     success "Dependencies installed"
 }
 
 # Setup iOS development environment
 setup_ios() {
-    if [[ "$1" != "--ios" ]]; then
+    if [[ "$LAUNCH_IOS" != true ]]; then
         return 0
     fi
     
@@ -246,8 +300,14 @@ setup_ios() {
     fi
     
     # Check if Xcode workspace exists
-    if [ ! -f "mobile/ios/LifeBuddy.xcworkspace" ]; then
+    if [ ! -f "mobile/ios/LifeBuddyDev.xcworkspace" ]; then
         error "Xcode workspace not found. Please run 'cd mobile && pnpm run pod-install'"
+        return 1
+    fi
+    
+    # Verify iOS scheme exists
+    if ! xcodebuild -list -workspace mobile/ios/LifeBuddyDev.xcworkspace | grep -q "LifeBuddyDev"; then
+        error "LifeBuddyDev scheme not found in Xcode workspace"
         return 1
     fi
     
@@ -408,16 +468,21 @@ start_mobile() {
 }
 
 # Start iOS simulator (optional)
-start_ios() {
-    if [[ "$1" != "--ios" ]]; then
+start_ios_simulator() {
+    if [[ "$LAUNCH_IOS" != true || "$SKIP_SIMULATOR" == true ]]; then
+        if [[ "$ENVIRONMENT" == "prod" ]]; then
+            info "Skipping iOS simulator in production mode"
+        else
+            info "iOS simulator launch disabled"
+        fi
         return 0
     fi
     
-    log "Launching iOS simulator using Xcode..."
+    log "Launching iOS simulator..."
     
     # Check if iOS project exists
     if [ ! -d "mobile/ios" ]; then
-        error "iOS project not found. Run 'cd mobile && pnpm run pod-install' first."
+        error "iOS project not found. Run 'cd mobile && pnpm run setup:ios' first."
         return 1
     fi
     
@@ -427,11 +492,16 @@ start_ios() {
         cd mobile/ios && pod install && cd ../..
     fi
     
+    # Wait a bit for Metro to be fully ready
+    sleep 5
+    
     cd mobile
-    pnpm run ios > ../logs/ios.log 2>&1 &
+    pnpm run dev:ios > ../logs/ios.log 2>&1 &
     IOS_PID=$!
     cd ..
-    success "iOS simulator launch command issued (see logs/ios.log)"
+    
+    success "iOS simulator launch initiated (see logs/ios.log for details)"
+    info "iOS simulator may take a moment to start..."
 }
 
 # Create logs directory
@@ -446,6 +516,8 @@ show_status() {
     echo -e "${CYAN}========================================${NC}"
     echo -e "${CYAN}        LifeBuddy Status Report${NC}"
     echo -e "${CYAN}========================================${NC}"
+    echo -e "${PURPLE}Environment:${NC} $ENVIRONMENT"
+    echo -e "${PURPLE}iOS Simulator:${NC} $([ "$LAUNCH_IOS" == true ] && echo "Enabled" || echo "Disabled")"
     echo
     
     # Backend status
@@ -490,13 +562,20 @@ show_status() {
     
     echo
     echo -e "${CYAN}========================================${NC}"
-    echo -e "${PURPLE}📱 To run mobile app:${NC}"
-    echo -e "   iOS: cd mobile && pnpm run ios"
-    echo -e "   Android: cd mobile && pnpm run android"
+    echo -e "${PURPLE}📱 Mobile Development Commands:${NC}"
+    echo -e "   iOS Simulator: cd mobile && pnpm run dev:ios"
+    echo -e "   iOS Device: cd mobile && pnpm run dev:ios:device"
+    echo -e "   Android: cd mobile && pnpm run dev:android"
+    echo -e "   Metro Reset: cd mobile && pnpm run start:metro"
+    echo -e "${PURPLE}🔧 iOS Setup Commands:${NC}"
+    echo -e "   Setup iOS: pnpm run setup:mobile:ios"
+    echo -e "   Reset iOS: pnpm run reset:mobile:ios"
+    echo -e "   Clean iOS: pnpm run clean:mobile:ios"
     echo -e "${PURPLE}📊 Logs:${NC}"
     echo -e "   Backend: tail -f logs/backend.log"
     echo -e "   Web: tail -f logs/web.log"
     echo -e "   Mobile: tail -f logs/mobile.log"
+    echo -e "   iOS: tail -f logs/ios.log"
     echo -e "${CYAN}========================================${NC}"
 }
 
@@ -546,14 +625,16 @@ main() {
     echo -e "${CYAN}========================================${NC}"
     echo -e "${CYAN}    LifeBuddy Development Environment${NC}"
     echo -e "${CYAN}========================================${NC}"
+    echo -e "${PURPLE}Environment:${NC} $ENVIRONMENT"
+    echo -e "${PURPLE}iOS Simulator:${NC} $([ "$LAUNCH_IOS" == true ] && echo "Enabled" || echo "Disabled")"
     echo
     
     # Setup
     setup_logs
     setup_environment
-    check_dependencies "$@"
+    check_dependencies
     install_dependencies
-    setup_ios # Always run iOS setup
+    setup_ios
     
     # Start services
     start_containers
@@ -562,8 +643,8 @@ main() {
     start_web
     start_mobile
     
-    # Always launch iOS simulator by default
-    start_ios
+    # Launch iOS simulator if enabled
+    start_ios_simulator
     
     # Show status
     show_status

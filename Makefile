@@ -2,7 +2,7 @@
 # LifeBuddy Development Makefile
 # =============================================================================
 
-.PHONY: help setup install dev build test lint clean docker-up docker-down
+.PHONY: help setup install dev build test lint clean docker-up docker-down ios
 
 # Default target
 help:
@@ -20,10 +20,23 @@ help:
 	@echo "  dev:mobile     - Start mobile development server"
 	@echo "  dev:docker     - Start all services with Docker"
 	@echo ""
+	@echo "iOS Development:"
+	@echo "  ios            - Show iOS development commands"
+	@echo "  ios:setup      - Setup iOS development environment"
+	@echo "  ios:simulator  - Launch iOS simulator"
+	@echo "  ios:device     - Launch on connected device"
+	@echo "  ios:build      - Build iOS project"
+	@echo "  ios:clean      - Clean iOS build artifacts"
+	@echo "  ios:reset      - Reset iOS environment"
+	@echo "  ios:pods       - Manage CocoaPods dependencies"
+	@echo "  ios:devices    - List available devices/simulators"
+	@echo "  ios:doctor     - Run React Native doctor"
+	@echo ""
 	@echo "Building:"
 	@echo "  build          - Build all projects"
 	@echo "  build:backend  - Build backend"
 	@echo "  build:mobile   - Build mobile app"
+	@echo "  build:ios      - Build iOS project"
 	@echo ""
 	@echo "Testing:"
 	@echo "  test           - Run all tests"
@@ -45,6 +58,7 @@ help:
 	@echo "  clean          - Clean all build artifacts"
 	@echo "  clean:mobile   - Clean mobile build artifacts"
 	@echo "  clean:backend  - Clean backend build artifacts"
+	@echo "  clean:ios      - Clean iOS build artifacts"
 
 # =============================================================================
 # Setup & Installation
@@ -107,6 +121,69 @@ dev-docker:
 	@echo "🗄️  MinIO: http://localhost:9001"
 
 # =============================================================================
+# iOS Development
+# =============================================================================
+
+ios:
+	@echo "📱 iOS Development Commands:"
+	@echo ""
+	@echo "Setup:"
+	@echo "  make ios:setup      - Setup iOS development environment"
+	@echo "  make ios:reset      - Reset iOS environment"
+	@echo ""
+	@echo "Development:"
+	@echo "  make ios:simulator  - Launch iOS simulator"
+	@echo "  make ios:device     - Launch on connected device"
+	@echo ""
+	@echo "Building:"
+	@echo "  make ios:build      - Build iOS project"
+	@echo "  make ios:clean      - Clean iOS build artifacts"
+	@echo ""
+	@echo "Management:"
+	@echo "  make ios:pods       - Manage CocoaPods dependencies"
+	@echo "  make ios:devices    - List available devices/simulators"
+	@echo "  make ios:doctor     - Run React Native doctor"
+	@echo ""
+	@echo "Or use the dedicated script:"
+	@echo "  ./scripts/ios-dev.sh [command]"
+
+ios:setup:
+	@echo "📱 Setting up iOS development environment..."
+	./scripts/ios-dev.sh setup
+
+ios:simulator:
+	@echo "📱 Launching iOS simulator..."
+	./scripts/ios-dev.sh simulator
+
+ios:device:
+	@echo "📱 Launching on connected device..."
+	./scripts/ios-dev.sh device
+
+ios:build:
+	@echo "📱 Building iOS project..."
+	./scripts/ios-dev.sh build
+
+ios:clean:
+	@echo "📱 Cleaning iOS build artifacts..."
+	./scripts/ios-dev.sh clean
+
+ios:reset:
+	@echo "📱 Resetting iOS environment..."
+	./scripts/ios-dev.sh reset
+
+ios:pods:
+	@echo "📱 Managing CocoaPods dependencies..."
+	./scripts/ios-dev.sh pods install
+
+ios:devices:
+	@echo "📱 Listing available devices/simulators..."
+	./scripts/ios-dev.sh devices
+
+ios:doctor:
+	@echo "📱 Running React Native doctor..."
+	./scripts/ios-dev.sh doctor
+
+# =============================================================================
 # Building
 # =============================================================================
 
@@ -121,6 +198,10 @@ build-backend:
 build-mobile:
 	@echo "📱 Building mobile app..."
 	cd mobile && pnpm run build:android
+
+build-ios:
+	@echo "📱 Building iOS project..."
+	./scripts/ios-dev.sh build
 
 # =============================================================================
 # Testing
@@ -198,13 +279,15 @@ clean-mobile:
 	@echo "📱 Cleaning mobile build artifacts..."
 	cd mobile && pnpm run clean
 	cd mobile && rm -rf node_modules
-	@echo "✅ Mobile clean complete!"
 
 clean-backend:
 	@echo "🔧 Cleaning backend build artifacts..."
 	cd backend && pnpm run clean
 	cd backend && rm -rf node_modules dist
-	@echo "✅ Backend clean complete!"
+
+clean-ios:
+	@echo "📱 Cleaning iOS build artifacts..."
+	./scripts/ios-dev.sh clean
 
 # =============================================================================
 # Database

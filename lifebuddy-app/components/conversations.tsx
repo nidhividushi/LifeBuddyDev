@@ -129,6 +129,13 @@ export function Conversations() {
     setMessages((prev) => [...prev, actionMessage])
   }
 
+  const clearChat = () => {
+    if (confirm('Are you sure you want to clear all chat messages? This action cannot be undone.')) {
+      setMessages([])
+      localStorage.removeItem(CHAT_STORAGE_KEY)
+    }
+  }
+
   const toggleRecording = () => {
     setIsRecording(!isRecording)
     if (!isRecording) {
