@@ -1,6 +1,0 @@
-module Pods_LifeBuddyDev {
-  umbrella header "Pods-LifeBuddyDev-umbrella.h"
-
-  export *
-  module * { export * }
-}
